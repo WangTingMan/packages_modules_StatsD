@@ -17,14 +17,25 @@
 #include "include/stats_buffer_writer.h"
 
 #include <errno.h>
+#ifdef _MSC_VER
+#include <utils/Timers.h>
+#else
 #include <sys/time.h>
 #include <sys/uio.h>
+#endif
 
 #include "stats_buffer_writer_impl.h"
 #include "stats_buffer_writer_queue.h"
 #include "statsd_writer.h"
 
 static const uint32_t kStatsEventTag = 1937006964;
+
+#ifdef _MSC_VER
+struct iovec {
+    void* iov_base;
+    size_t iov_len;
+};
+#endif
 
 extern struct android_log_transport_write statsdLoggerWrite;
 

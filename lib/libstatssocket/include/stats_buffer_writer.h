@@ -19,12 +19,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "libstatssocket_export.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif  // __CPLUSPLUS
-void stats_log_close();
-int stats_log_is_closed();
-int write_buffer_to_statsd(void* buffer, size_t size, uint32_t atomId);
+LIBSTATSSOCKET_API void stats_log_close();
+LIBSTATSSOCKET_API int stats_log_is_closed();
+LIBSTATSSOCKET_API int write_buffer_to_statsd(void* buffer, size_t size, uint32_t atomId);
 #ifdef __cplusplus
 }
 #endif  // __CPLUSPLUS

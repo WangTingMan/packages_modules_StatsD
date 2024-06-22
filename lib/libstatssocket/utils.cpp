@@ -19,7 +19,11 @@
 #include <errno.h>
 #include <time.h>
 
+#include <utils/Timers.h>
+
+#ifndef _MSC_VER
 #include "stats_statsdsocketlog.h"
+#endif
 
 int64_t get_elapsed_realtime_ns() {
     struct timespec t;
@@ -29,6 +33,9 @@ int64_t get_elapsed_realtime_ns() {
 }
 
 int toSocketLossError(int errno_code) {
+    #ifdef _MSC_VER
+    return 0;
+    #else
     using namespace android::os::statsdsocket;
 
     // compile time checks
@@ -79,4 +86,5 @@ int toSocketLossError(int errno_code) {
         default:
             return STATS_SOCKET_LOSS_REPORTED__ERRORS__SOCKET_LOSS_ERROR_UNKNOWN;
     }
+    #endif
 }

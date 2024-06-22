@@ -17,9 +17,29 @@
 #ifndef ANDROID_STATS_LOG_STATS_WRITER_H
 #define ANDROID_STATS_LOG_STATS_WRITER_H
 
+#ifdef _MSC_VER
+#include <stdint.h>
+#else
 #include <pthread.h>
 #include <stdatomic.h>
 #include <sys/socket.h>
+#endif
+
+#ifdef __cplusplus
+#ifndef __BEGIN_DECLS
+#define __BEGIN_DECLS extern "C" {
+#endif
+#else
+#define __BEGIN_DECLS
+#endif
+
+#ifdef __cplusplus
+#ifndef __END_DECLS
+#define __END_DECLS }
+#endif
+#else
+#define __END_DECLS
+#endif
 
 __BEGIN_DECLS
 
@@ -34,7 +54,11 @@ void statsd_writer_init_unlock();
 
 struct android_log_transport_write {
     const char* name; /* human name to describe the transport */
+    #ifdef _MSC_VER
+    int sock;
+    #else
     atomic_int sock;
+    #endif
     int (*available)(); /* Does not cause resources to be taken */
     int (*open)();      /* can be called multiple times, reusing current resources */
     void (*close)();    /* free up resources */

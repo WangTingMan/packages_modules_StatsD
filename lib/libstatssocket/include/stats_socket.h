@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include "libstatssocket_export.h"
+
 /**
  * Helpers to manage the statsd socket.
  **/
@@ -27,7 +29,7 @@ extern "C" {
 /**
  * Closes the statsd socket file descriptor.
  **/
-void AStatsSocket_close();
+LIBSTATSSOCKET_API void AStatsSocket_close();
 #ifdef __cplusplus
 }
 #endif  // __CPLUSPLUS

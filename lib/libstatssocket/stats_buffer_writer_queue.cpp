@@ -17,7 +17,9 @@
 #include "stats_buffer_writer_queue.h"
 
 #include <private/android_filesystem_config.h>
+#if __has_include(<unistd.h>)
 #include <unistd.h>
+#endif
 
 #include <chrono>
 #include <queue>
@@ -28,7 +30,9 @@
 #include "utils.h"
 
 BufferWriterQueue::BufferWriterQueue() : mWorkThread(&BufferWriterQueue::processCommands, this) {
+    #ifndef _MSC_VER
     pthread_setname_np(mWorkThread.native_handle(), "socket_writer_queue");
+    #endif
 }
 
 BufferWriterQueue::~BufferWriterQueue() {
@@ -157,12 +161,16 @@ bool should_write_via_queue(uint32_t atomId) {
 #else
 bool should_write_via_queue(uint32_t /*atomId*/) {
 #endif
+    #ifdef _MSC_VER
+    return true;
+    #else
     const uint32_t appUid = getuid();
 
     // hard-coded push all system server atoms to queue
     if (appUid == AID_SYSTEM) {
         return true;
     }
+    #endif
 
 #ifdef ENABLE_BENCHMARK_SUPPORT
     // some hand-picked atoms to be pushed into the queue

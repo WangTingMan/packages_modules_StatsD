@@ -18,7 +18,25 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#if __has_include(<sys/cdefs.h>)
 #include <sys/cdefs.h>
+#endif
+
+#ifdef __cplusplus
+#ifndef __BEGIN_DECLS
+#define __BEGIN_DECLS extern "C" {
+#endif
+#else
+#define __BEGIN_DECLS
+#endif
+
+#ifdef __cplusplus
+#ifndef __END_DECLS
+#define __END_DECLS }
+#endif
+#else
+#define __END_DECLS
+#endif
 
 __BEGIN_DECLS
 

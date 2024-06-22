@@ -21,6 +21,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "libstatssocket_export.h"
+
 /*
  * Functionality to build and store the buffer sent over the statsd socket.
  * This code defines and encapsulates the socket protocol.
@@ -57,7 +59,7 @@ typedef struct AStatsEvent AStatsEvent;
  * Returns a new AStatsEvent. If you call this function, you must call AStatsEvent_release to free
  * the allocated memory.
  */
-AStatsEvent* AStatsEvent_obtain();
+LIBSTATSSOCKET_API AStatsEvent* AStatsEvent_obtain();
 
 /**
  * Builds and finalizes the AStatsEvent for a pulled event.
@@ -69,7 +71,7 @@ AStatsEvent* AStatsEvent_obtain();
  * Build can be called multiple times without error.
  * If the event has been built before, this function is a no-op.
  */
-void AStatsEvent_build(AStatsEvent* event);
+LIBSTATSSOCKET_API void AStatsEvent_build(AStatsEvent* event);
 
 /**
  * Writes the StatsEvent to the stats log.
@@ -81,14 +83,14 @@ void AStatsEvent_build(AStatsEvent* event);
  * After calling this, AStatsEvent_release must be called,
  * and is the only function that can be safely called.
  */
-int AStatsEvent_write(AStatsEvent* event);
+LIBSTATSSOCKET_API int AStatsEvent_write(AStatsEvent* event);
 
 /**
  * Frees the memory held by this StatsEvent.
  *
  * After calling this, the StatsEvent must not be used or modified in any way.
  */
-void AStatsEvent_release(AStatsEvent* event);
+LIBSTATSSOCKET_API void AStatsEvent_release(AStatsEvent* event);
 
 /**
  * Sets the atom id for this StatsEvent.
@@ -96,39 +98,40 @@ void AStatsEvent_release(AStatsEvent* event);
  * This function should be called immediately after AStatsEvent_obtain. It may
  * be called additional times as well, but subsequent calls will have no effect.
  **/
-void AStatsEvent_setAtomId(AStatsEvent* event, uint32_t atomId);
+LIBSTATSSOCKET_API void AStatsEvent_setAtomId(AStatsEvent* event, uint32_t atomId);
 
 /**
  * Writes an int32_t field to this StatsEvent.
  **/
-void AStatsEvent_writeInt32(AStatsEvent* event, int32_t value);
+LIBSTATSSOCKET_API void AStatsEvent_writeInt32(AStatsEvent* event, int32_t value);
 
 /**
  * Writes an int64_t field to this StatsEvent.
  **/
-void AStatsEvent_writeInt64(AStatsEvent* event, int64_t value);
+LIBSTATSSOCKET_API void AStatsEvent_writeInt64(AStatsEvent* event, int64_t value);
 
 /**
  * Writes a float field to this StatsEvent.
  **/
-void AStatsEvent_writeFloat(AStatsEvent* event, float value);
+LIBSTATSSOCKET_API void AStatsEvent_writeFloat(AStatsEvent* event, float value);
 
 /**
  * Write a bool field to this StatsEvent.
  **/
-void AStatsEvent_writeBool(AStatsEvent* event, bool value);
+LIBSTATSSOCKET_API void AStatsEvent_writeBool(AStatsEvent* event, bool value);
 
 /**
  * Write a byte array field to this StatsEvent.
  **/
-void AStatsEvent_writeByteArray(AStatsEvent* event, const uint8_t* buf, size_t numBytes);
+LIBSTATSSOCKET_API void AStatsEvent_writeByteArray(AStatsEvent* event, const uint8_t* buf,
+                                                   size_t numBytes);
 
 /**
  * Write a string field to this StatsEvent.
  *
  * The string must be null-terminated.
  **/
-void AStatsEvent_writeString(AStatsEvent* event, const char* value);
+LIBSTATSSOCKET_API void AStatsEvent_writeString(AStatsEvent* event, const char* value);
 
 /**
  * Write an attribution chain field to this StatsEvent.
@@ -141,7 +144,7 @@ void AStatsEvent_writeString(AStatsEvent* event, const char* value);
  * \param numNodes the number of AttributionNodes in the attribution chain. This is the length of
  *                 the uids and the tags.
  **/
-void AStatsEvent_writeAttributionChain(AStatsEvent* event, const uint32_t* uids,
+LIBSTATSSOCKET_API void AStatsEvent_writeAttributionChain(AStatsEvent* event, const uint32_t* uids,
                                        const char* const* tags, uint8_t numNodes);
 
 /**
@@ -150,7 +153,8 @@ void AStatsEvent_writeAttributionChain(AStatsEvent* event, const uint32_t* uids,
  * Max size of array is 127. If exceeded, array is not written and ERROR_LIST_TOO_LONG is appended
  * to StatsEvent.
  **/
-void AStatsEvent_writeInt32Array(AStatsEvent* event, const int32_t* elements, size_t numElements);
+LIBSTATSSOCKET_API void AStatsEvent_writeInt32Array(AStatsEvent* event, const int32_t* elements,
+                                                    size_t numElements);
 
 /**
  * Write a int64 array field to this StatsEvent.
@@ -158,7 +162,8 @@ void AStatsEvent_writeInt32Array(AStatsEvent* event, const int32_t* elements, si
  * Max size of array is 127. If exceeded, array is not written and ERROR_LIST_TOO_LONG is appended
  * to StatsEvent.
  **/
-void AStatsEvent_writeInt64Array(AStatsEvent* event, const int64_t* elements, size_t numElements);
+LIBSTATSSOCKET_API void AStatsEvent_writeInt64Array(AStatsEvent* event, const int64_t* elements,
+                                                    size_t numElements);
 
 /**
  * Write a float array field to this StatsEvent.
@@ -166,7 +171,8 @@ void AStatsEvent_writeInt64Array(AStatsEvent* event, const int64_t* elements, si
  * Max size of array is 127. If exceeded, array is not written and ERROR_LIST_TOO_LONG is appended
  * to StatsEvent.
  **/
-void AStatsEvent_writeFloatArray(AStatsEvent* event, const float* elements, size_t numElements);
+LIBSTATSSOCKET_API void AStatsEvent_writeFloatArray(AStatsEvent* event, const float* elements,
+                                                    size_t numElements);
 
 /**
  * Write a bool array field to this StatsEvent.
@@ -174,7 +180,8 @@ void AStatsEvent_writeFloatArray(AStatsEvent* event, const float* elements, size
  * Max size of array is 127. If exceeded, array is not written and ERROR_LIST_TOO_LONG is appended
  * to StatsEvent.
  **/
-void AStatsEvent_writeBoolArray(AStatsEvent* event, const bool* elements, size_t numElements);
+LIBSTATSSOCKET_API void AStatsEvent_writeBoolArray(AStatsEvent* event, const bool* elements,
+                                                   size_t numElements);
 
 /**
  * Write a string array field to this StatsEvent.
@@ -184,25 +191,28 @@ void AStatsEvent_writeBoolArray(AStatsEvent* event, const bool* elements, size_t
  * Strings must be null terminated. Max size of array is 127. If exceeded, array is not written and
  * ERROR_LIST_TOO_LONG is appended to StatsEvent.
  **/
-void AStatsEvent_writeStringArray(AStatsEvent* event, const char* const* elements,
+LIBSTATSSOCKET_API void AStatsEvent_writeStringArray(AStatsEvent* event,
+                                                     const char* const* elements,
                                   size_t numElements);
 
 /**
  * Write a bool annotation for the previous field written.
  **/
-void AStatsEvent_addBoolAnnotation(AStatsEvent* event, uint8_t annotationId, bool value);
+LIBSTATSSOCKET_API void AStatsEvent_addBoolAnnotation(AStatsEvent* event, uint8_t annotationId,
+                                                      bool value);
 
 /**
  * Write an integer annotation for the previous field written.
  **/
-void AStatsEvent_addInt32Annotation(AStatsEvent* event, uint8_t annotationId, int32_t value);
+LIBSTATSSOCKET_API void AStatsEvent_addInt32Annotation(AStatsEvent* event, uint8_t annotationId,
+                                                       int32_t value);
 
 // Internal/test APIs. Should not be exposed outside of the APEX.
-void AStatsEvent_overwriteTimestamp(AStatsEvent* event, uint64_t timestampNs);
-uint32_t AStatsEvent_getAtomId(AStatsEvent* event);
+LIBSTATSSOCKET_API void AStatsEvent_overwriteTimestamp(AStatsEvent* event, uint64_t timestampNs);
+LIBSTATSSOCKET_API uint32_t AStatsEvent_getAtomId(AStatsEvent* event);
 // Size is an output parameter.
-uint8_t* AStatsEvent_getBuffer(AStatsEvent* event, size_t* size);
-uint32_t AStatsEvent_getErrors(AStatsEvent* event);
+LIBSTATSSOCKET_API uint8_t* AStatsEvent_getBuffer(AStatsEvent* event, size_t* size);
+LIBSTATSSOCKET_API uint32_t AStatsEvent_getErrors(AStatsEvent* event);
 
 #ifdef __cplusplus
 }
