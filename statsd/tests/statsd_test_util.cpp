@@ -20,6 +20,7 @@
 #include <android-base/stringprintf.h>
 
 #include "matchers/SimpleAtomMatchingTracker.h"
+#include "metrics/parsing_utils/histogram_parsing_utils.h"
 #include "stats_event.h"
 #include "stats_util.h"
 
@@ -536,12 +537,15 @@ FieldMatcher CreateAttributionUidAndOtherDimensions(const int atomId,
 }
 
 EventMetric createEventMetric(const string& name, const int64_t what,
-                              const optional<int64_t>& condition) {
+                              const optional<int64_t>& condition, const vector<int64_t>& states) {
     EventMetric metric;
     metric.set_id(StringToId(name));
     metric.set_what(what);
     if (condition) {
         metric.set_condition(condition.value());
+    }
+    for (const int64_t state : states) {
+        metric.add_slice_by_state(state);
     }
     return metric;
 }
@@ -767,8 +771,8 @@ bool parseStatsEventToLogEvent(AStatsEvent* statsEvent, LogEvent* logEvent) {
     return result;
 }
 
-void CreateTwoValueLogEvent(LogEvent* logEvent, int atomId, int64_t eventTimeNs, int32_t value1,
-                            int32_t value2) {
+AStatsEvent* makeTwoValueStatsEvent(int atomId, int64_t eventTimeNs, int32_t value1,
+                                    int32_t value2) {
     AStatsEvent* statsEvent = AStatsEvent_obtain();
     AStatsEvent_setAtomId(statsEvent, atomId);
     AStatsEvent_overwriteTimestamp(statsEvent, eventTimeNs);
@@ -776,6 +780,12 @@ void CreateTwoValueLogEvent(LogEvent* logEvent, int atomId, int64_t eventTimeNs,
     AStatsEvent_writeInt32(statsEvent, value1);
     AStatsEvent_writeInt32(statsEvent, value2);
 
+    return statsEvent;
+}
+
+void CreateTwoValueLogEvent(LogEvent* logEvent, int atomId, int64_t eventTimeNs, int32_t value1,
+                            int32_t value2) {
+    AStatsEvent* statsEvent = makeTwoValueStatsEvent(atomId, eventTimeNs, value1, value2);
     parseStatsEventToLogEvent(statsEvent, logEvent);
 }
 
@@ -864,6 +874,19 @@ AStatsEvent* makeUidStatsEvent(int atomId, int64_t eventTimeNs, int uid, int dat
     return statsEvent;
 }
 
+AStatsEvent* makeAttributionStatsEvent(int atomId, int64_t eventTimeNs, const vector<int>& uids,
+                                       const vector<string>& tags, int data1, int data2) {
+    AStatsEvent* statsEvent = AStatsEvent_obtain();
+    AStatsEvent_setAtomId(statsEvent, atomId);
+    AStatsEvent_overwriteTimestamp(statsEvent, eventTimeNs);
+
+    writeAttribution(statsEvent, uids, tags);
+    AStatsEvent_writeInt32(statsEvent, data1);
+    AStatsEvent_writeInt32(statsEvent, data2);
+
+    return statsEvent;
+}
+
 shared_ptr<LogEvent> makeUidLogEvent(int atomId, int64_t eventTimeNs, int uid, int data1,
                                      int data2) {
     AStatsEvent* statsEvent = makeUidStatsEvent(atomId, eventTimeNs, uid, data1, data2);
@@ -945,13 +968,8 @@ shared_ptr<LogEvent> makeRepeatedUidLogEvent(int atomId, int64_t eventTimeNs,
 shared_ptr<LogEvent> makeAttributionLogEvent(int atomId, int64_t eventTimeNs,
                                              const vector<int>& uids, const vector<string>& tags,
                                              int data1, int data2) {
-    AStatsEvent* statsEvent = AStatsEvent_obtain();
-    AStatsEvent_setAtomId(statsEvent, atomId);
-    AStatsEvent_overwriteTimestamp(statsEvent, eventTimeNs);
-
-    writeAttribution(statsEvent, uids, tags);
-    AStatsEvent_writeInt32(statsEvent, data1);
-    AStatsEvent_writeInt32(statsEvent, data2);
+    AStatsEvent* statsEvent =
+            makeAttributionStatsEvent(atomId, eventTimeNs, uids, tags, data1, data2);
 
     shared_ptr<LogEvent> logEvent = std::make_shared<LogEvent>(/*uid=*/0, /*pid=*/0);
     parseStatsEventToLogEvent(statsEvent, logEvent.get());
@@ -1150,13 +1168,27 @@ std::unique_ptr<LogEvent> CreateTestAtomReportedEvent(
     AStatsEvent_writeBool(statsEvent, boolField);
     AStatsEvent_writeInt32(statsEvent, enumField);
     AStatsEvent_writeByteArray(statsEvent, bytesField.data(), bytesField.size());
-    AStatsEvent_writeInt32Array(statsEvent, repeatedIntField.data(), repeatedIntField.size());
-    AStatsEvent_writeInt64Array(statsEvent, repeatedLongField.data(), repeatedLongField.size());
-    AStatsEvent_writeFloatArray(statsEvent, repeatedFloatField.data(), repeatedFloatField.size());
-    AStatsEvent_writeStringArray(statsEvent, cRepeatedStringField.data(),
-                                 repeatedStringField.size());
-    AStatsEvent_writeBoolArray(statsEvent, repeatedBoolField, repeatedBoolFieldLength);
-    AStatsEvent_writeInt32Array(statsEvent, repeatedEnumField.data(), repeatedEnumField.size());
+    if (__builtin_available(android __ANDROID_API_T__, *)) {
+        /* CreateTestAtomReportedEvent is used in CreateTestAtomReportedEventVariableRepeatedFields
+           and CreateTestAtomReportedEventWithPrimitives. Only
+           CreateTestAtomReportedEventVariableRepeatedFields writes repeated fields, so wrapping
+           this portion in a __builtin_available and
+           CreateTestAtomReportedEventVariableRepeatedFields is annotated with __INTRODUCED_IN.
+        */
+        AStatsEvent_writeInt32Array(statsEvent, repeatedIntField.data(), repeatedIntField.size());
+        AStatsEvent_writeInt64Array(statsEvent, repeatedLongField.data(), repeatedLongField.size());
+        AStatsEvent_writeFloatArray(statsEvent, repeatedFloatField.data(),
+                                    repeatedFloatField.size());
+        AStatsEvent_writeStringArray(statsEvent, cRepeatedStringField.data(),
+                                     repeatedStringField.size());
+        AStatsEvent_writeBoolArray(statsEvent, repeatedBoolField, repeatedBoolFieldLength);
+        AStatsEvent_writeInt32Array(statsEvent, repeatedEnumField.data(), repeatedEnumField.size());
+    } else if (!repeatedIntField.empty() || !repeatedLongField.empty() ||
+               !repeatedFloatField.empty() || !cRepeatedStringField.empty() ||
+               repeatedBoolFieldLength != 0 || !repeatedEnumField.empty()) {
+        ADD_FAILURE() << "CreateTestAtomReportedEvent w/ repeated fields is only available in "
+                         "Android T and above.";
+    }
 
     std::unique_ptr<LogEvent> logEvent = std::make_unique<LogEvent>(/*uid=*/0, /*pid=*/0);
     parseStatsEventToLogEvent(statsEvent, logEvent.get());
@@ -1465,6 +1497,7 @@ sp<StatsLogProcessor> CreateStatsLogProcessor(const int64_t timeBaseNs, const in
                                               const int32_t atomTag, const sp<UidMap> uidMap,
                                               const shared_ptr<LogEventFilter>& logEventFilter) {
     sp<StatsPullerManager> pullerManager = new StatsPullerManager();
+    StatsPuller::SetUidMap(uidMap);
     if (puller != nullptr) {
         pullerManager->RegisterPullAtomCallback(/*uid=*/0, atomTag, NS_PER_SEC, NS_PER_SEC * 10, {},
                                                 puller);
@@ -1538,6 +1571,11 @@ sp<NumericValueMetricProducer> createNumericValueMetricProducer(
         aggregationTypes.push_back(metric.aggregation_type());
     }
 
+    ParseHistogramBinConfigsResult parseBinConfigsResult =
+            parseHistogramBinConfigs(metric, aggregationTypes);
+    const vector<optional<const BinStarts>>& binStartsList =
+            std::get<vector<optional<const BinStarts>>>(parseBinConfigsResult);
+
     sp<MockConfigMetadataProvider> provider = makeMockConfigMetadataProvider(/*enabled=*/false);
     const int pullAtomId = isPulled ? atomId : -1;
     return new NumericValueMetricProducer(
@@ -1545,7 +1583,8 @@ sp<NumericValueMetricProducer> createNumericValueMetricProducer(
             {timeBaseNs, startTimeNs, bucketSizeNs, metric.min_bucket_size_nanos(),
              conditionCorrectionThresholdNs, metric.split_bucket_for_app_upgrade()},
             {containsAnyPositionInDimensionsInWhat, shouldUseNestedDimensions, logEventMatcherIndex,
-             eventMatcherWizard, metric.dimensions_in_what(), fieldMatchers, aggregationTypes},
+             eventMatcherWizard, metric.dimensions_in_what(), fieldMatchers, aggregationTypes,
+             binStartsList},
             {conditionIndex, metric.links(), initialConditionCache, wizard},
             {metric.state_link(), slicedStateAtoms, stateGroupMap},
             {/*eventActivationMap=*/{}, /*eventDeactivationMap=*/{}},
@@ -1553,13 +1592,13 @@ sp<NumericValueMetricProducer> createNumericValueMetricProducer(
 }
 
 LogEventFilter::AtomIdSet CreateAtomIdSetDefault() {
-    LogEventFilter::AtomIdSet resultList(std::move(StatsLogProcessor::getDefaultAtomIdSet()));
+    LogEventFilter::AtomIdSet resultList(StatsLogProcessor::getDefaultAtomIdSet());
     StateManager::getInstance().addAllAtomIds(resultList);
     return resultList;
 }
 
 LogEventFilter::AtomIdSet CreateAtomIdSetFromConfig(const StatsdConfig& config) {
-    LogEventFilter::AtomIdSet resultList(std::move(StatsLogProcessor::getDefaultAtomIdSet()));
+    LogEventFilter::AtomIdSet resultList(StatsLogProcessor::getDefaultAtomIdSet());
 
     // Parse the config for atom ids. A combination atom matcher is a combination of (in the end)
     // simple atom matchers. So by adding all the atoms from the simple atom matchers
@@ -2115,6 +2154,17 @@ void backfillAggregatedAtomsInEventMetric(StatsLogReport::EventMetricDataWrapper
             data.set_elapsed_timestamp_nanos(atomInfo->elapsed_timestamp_nanos(j));
             metricData.push_back(data);
         }
+        for (int j = 0; j < atomInfo->state_info_size(); j++) {
+            for (auto timestampNs : atomInfo->state_info(j).elapsed_timestamp_nanos()) {
+                EventMetricData data;
+                *(data.mutable_atom()) = atomInfo->atom();
+                for (auto state : atomInfo->state_info(j).slice_by_state()) {
+                    *(data.add_slice_by_state()) = state;
+                }
+                data.set_elapsed_timestamp_nanos(timestampNs);
+                metricData.push_back(data);
+            }
+        }
     }
 
     if (metricData.size() == 0) {
@@ -2222,9 +2272,10 @@ void writeBootFlag(const string& flagName, const string& flagValue) {
 
 PackageInfoSnapshot getPackageInfoSnapshot(const sp<UidMap> uidMap) {
     ProtoOutputStream protoOutputStream;
-    uidMap->writeUidMapSnapshot(/* timestamp */ 1, /* includeVersionStrings */ true,
-                                /* includeInstaller */ true, /* certificateHashSize */ UINT8_MAX,
-                                /* omitSystemUids */ false,
+    uidMap->writeUidMapSnapshot(/* timestamp */ 1,
+                                {/* includeVersionStrings */ true,
+                                 /* includeInstaller */ true, /* certificateHashSize */ UINT8_MAX,
+                                 /* omitSystemUids */ false},
                                 /* interestingUids */ {},
                                 /* installerIndices */ nullptr, /* str_set */ nullptr,
                                 &protoOutputStream);
@@ -2328,7 +2379,15 @@ void fillStatsEventWithSampleValue(AStatsEvent* statsEvent, uint8_t typeId) {
             AStatsEvent_writeString(statsEvent, "test");
             break;
         case LIST_TYPE:
-            AStatsEvent_writeInt32Array(statsEvent, int32Array, 2);
+            if (__builtin_available(android __ANDROID_API_T__, *)) {
+                /* CAUTION: when using this function with LIST_TYPE,
+                    wrap the code in a __builtin_available or __INTRODUCED_IN w/ T.
+                 */
+                AStatsEvent_writeInt32Array(statsEvent, int32Array, 2);
+            } else {
+                ADD_FAILURE() << "fillStatsEventWithSampleValue() w/ typeId LIST_TYPE should only "
+                                 "be used on Android T or above.";
+            }
             break;
         case FLOAT_TYPE:
             AStatsEvent_writeFloat(statsEvent, 1.3f);

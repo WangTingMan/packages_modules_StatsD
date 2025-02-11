@@ -23,6 +23,8 @@
 #include <utility>
 #include <variant>
 
+#include "HistogramValue.h"
+
 namespace android {
 namespace os {
 namespace statsd {
@@ -60,32 +62,50 @@ constexpr BinaryOperationVisitor add(std::plus{});
 
 // Visitor for printing type information currently stored in the NumericValue variant.
 struct ToStringVisitor {
-    std::string operator()(int64_t value) {
+    std::string operator()(int64_t value) const {
         return std::to_string(value) + "[L]";
     }
 
-    std::string operator()(double value) {
+    std::string operator()(double value) const {
         return std::to_string(value) + "[D]";
     }
 
-    std::string operator()(auto) {
+    std::string operator()(const HistogramValue& value) const {
+        return value.toString();
+    }
+
+    std::string operator()(auto) const {
         return "[UNKNOWN]";
     }
 };
 
 // Visitor for determining whether the NumericValue variant stores a 0.
 struct IsZeroVisitor {
-    bool operator()(int64_t value) {
+    bool operator()(int64_t value) const {
         return value == 0;
     }
 
-    bool operator()(double value) {
+    bool operator()(double value) const {
         return fabs(value) <= std::numeric_limits<double>::epsilon();
     }
 
+    bool operator()(const HistogramValue& value) const {
+        return value.isEmpty();
+    }
+
     // "Empty" variant does not store 0.
-    bool operator()(std::monostate) {
+    bool operator()(std::monostate) const {
         return false;
+    }
+};
+
+struct GetSizeVisitor {
+    size_t operator()(const HistogramValue& value) const {
+        return value.getSize();
+    }
+
+    size_t operator()(const auto& value) const {
+        return sizeof(value);
     }
 };
 
@@ -105,6 +125,7 @@ bool NumericValue::is() const {
 }
 template bool NumericValue::is<int64_t>() const;
 template bool NumericValue::is<double>() const;
+template bool NumericValue::is<HistogramValue>() const;
 
 bool NumericValue::hasValue() const {
     return !is<std::monostate>();
@@ -116,6 +137,7 @@ V& NumericValue::getValue() {
 }
 template int64_t& NumericValue::getValue<int64_t>();
 template double& NumericValue::getValue<double>();
+template HistogramValue& NumericValue::getValue<HistogramValue>();
 
 template <typename V>
 const V& NumericValue::getValue() const {
@@ -123,6 +145,7 @@ const V& NumericValue::getValue() const {
 }
 template const int64_t& NumericValue::getValue<int64_t>() const;
 template const double& NumericValue::getValue<double>() const;
+template const HistogramValue& NumericValue::getValue<HistogramValue>() const;
 
 template <typename V>
 V& NumericValue::getValueOrDefault(V& defaultValue) {
@@ -130,6 +153,8 @@ V& NumericValue::getValueOrDefault(V& defaultValue) {
 }
 template int64_t& NumericValue::getValueOrDefault<int64_t>(int64_t& defaultValue);
 template double& NumericValue::getValueOrDefault<double>(double& defaultValue);
+template HistogramValue& NumericValue::getValueOrDefault<HistogramValue>(
+        HistogramValue& defaultValue);
 
 template <typename V>
 const V& NumericValue::getValueOrDefault(const V& defaultValue) const {
@@ -137,13 +162,15 @@ const V& NumericValue::getValueOrDefault(const V& defaultValue) const {
 }
 template const int64_t& NumericValue::getValueOrDefault<int64_t>(const int64_t& defaultValue) const;
 template const double& NumericValue::getValueOrDefault<double>(const double& defaultValue) const;
+template const HistogramValue& NumericValue::getValueOrDefault<HistogramValue>(
+        const HistogramValue& defaultValue) const;
 
 bool NumericValue::isZero() const {
     return std::visit(IsZeroVisitor{}, mData);
 }
 
 size_t NumericValue::getSize() const {
-    return std::visit([](const auto& val) { return sizeof(val); }, mData);
+    return std::visit(GetSizeVisitor{}, mData);
 }
 
 NumericValue& NumericValue::operator+=(const NumericValue& rhs) {

@@ -19,6 +19,7 @@
 // =========================================================================
 package {
     default_applicable_licenses: ["Android-Apache-2.0"],
+    default_team: "trendy_team_android_telemetry_client_infra",
 }
 
 cc_defaults {
@@ -32,9 +33,11 @@ cc_defaults {
         "stats_socket_loss_reporter.cpp",
         "utils.cpp",
     ],
+    local_include_dirs: [
+        "include",
+    ],
     generated_sources: ["stats_statsdsocketlog.cpp"],
     generated_headers: ["stats_statsdsocketlog.h"],
-    export_include_dirs: ["include"],
     header_libs: [
         "libcutils_headers",
         "liblog_headers",
@@ -50,6 +53,7 @@ cc_defaults {
     static_libs: [
         "libbase",
     ],
+    min_sdk_version: "30",
 }
 
 cc_library_shared {
@@ -59,19 +63,21 @@ cc_library_shared {
     ],
     host_supported: true,
     stl: "libc++_static",
-
+    export_include_dirs: ["include"],
     // enumerate stable entry points for APEX use
+    target: {
+        darwin: {
+            enabled: false,
+        },
+    },
+    version_script: "libstatssocket.map.txt",
     stubs: {
         symbol_file: "libstatssocket.map.txt",
         versions: [
             "30",
         ],
     },
-    apex_available: [
-        "com.android.os.statsd",
-        "test_com.android.os.statsd",
-    ],
-    min_sdk_version: "30",
+    apex_available: ["com.android.os.statsd"],
 }
 
 cc_library_headers {
@@ -89,16 +95,21 @@ filegroup {
     srcs: ["libstatssocket_test_default.map"],
 }
 
+cc_library_headers {
+    name: "libstatssocket_test_headers",
+    export_include_dirs: ["tests/include"],
+    min_sdk_version: "30",
+}
+
 cc_test {
     name: "libstatssocket_test",
+    defaults: ["libstatssocket_defaults"],
     srcs: [
         "tests/stats_event_test.cpp",
         "tests/stats_writer_test.cpp",
         "tests/stats_buffer_writer_queue_test.cpp",
         "tests/stats_socketlog_test.cpp",
     ],
-    generated_sources: ["stats_statsdsocketlog.cpp"],
-    generated_headers: ["stats_statsdsocketlog.h"],
     cflags: [
         "-Wall",
         "-Werror",
@@ -120,7 +131,9 @@ cc_test {
     ],
     shared_libs: [
         "libutils",
-        "libstatssocket",
+    ],
+    header_libs: [
+        "libstatssocket_test_headers",
     ],
     test_suites: [
         "device-tests",
@@ -139,8 +152,6 @@ cc_test {
         },
     },
     require_root: true,
-    min_sdk_version: "30",
-    test_for: ["com.android.os.statsd"],
 }
 
 genrule {
@@ -175,9 +186,6 @@ cc_fuzz {
     ],
     srcs: [
         "fuzzers/stats_event_fuzzer.cpp",
-    ],
-    local_include_dirs: [
-        "include",
     ],
     host_supported: true,
     cflags: [

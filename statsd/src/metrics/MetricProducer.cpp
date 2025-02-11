@@ -191,9 +191,10 @@ void MetricProducer::onMatchedLogEventLocked(const size_t matcherIndex, const Lo
  *        Inherited classes are responsible for proper severity determination according
  *        to loss parameters (see @determineCorruptionSeverity)
  */
-void MetricProducer::onMatchedLogEventLostLocked(int32_t /*atomId*/, DataCorruptedReason reason,
+void MetricProducer::onMatchedLogEventLostLocked(int32_t atomId, DataCorruptedReason reason,
                                                  LostAtomType atomType) {
-    const DataCorruptionSeverity newSeverity = determineCorruptionSeverity(reason, atomType);
+    const DataCorruptionSeverity newSeverity =
+            determineCorruptionSeverity(atomId, reason, atomType);
     switch (reason) {
         case DATA_CORRUPTED_SOCKET_LOSS:
             mDataCorruptedDueToSocketLoss = std::max(mDataCorruptedDueToSocketLoss, newSeverity);
@@ -356,8 +357,6 @@ void MetricProducer::queryStateValue(int32_t atomId, const HashableDimensionKey&
     if (!StateManager::getInstance().getStateValue(atomId, queryKey, value)) {
         value->mValue = Value(StateTracker::kStateUnknown);
         value->mField.setTag(atomId);
-        ALOGW("StateTracker not found for state atom %d", atomId);
-        return;
     }
 }
 
@@ -465,6 +464,15 @@ size_t MetricProducer::computeOverheadSizeLocked(const bool hasPastBuckets,
             overheadSize += sizeof(int32_t) * mDimensionsInWhat.size();
         }
     }
+
+    const int32_t dataCorruptedReasonsCount =
+            (mDataCorruptedDueToQueueOverflow != DataCorruptionSeverity::kNone) +
+            (mDataCorruptedDueToSocketLoss != DataCorruptionSeverity::kNone);
+    if (dataCorruptedReasonsCount > 0) {
+        // adding extra int32 to account for the array length
+        overheadSize += (dataCorruptedReasonsCount + 1) * sizeof(int32_t);
+    }
+
     return overheadSize;
 }
 

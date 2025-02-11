@@ -29,6 +29,10 @@
 #include "stats_buffer_writer_queue_impl.h"
 #include "utils.h"
 
+namespace {
+constexpr int32_t kBootTimeEventElapsedTimeAtomId = 240;
+}
+
 BufferWriterQueue::BufferWriterQueue() : mWorkThread(&BufferWriterQueue::processCommands, this) {
     #ifndef _MSC_VER
     pthread_setname_np(mWorkThread.native_handle(), "socket_writer_queue");
@@ -156,14 +160,22 @@ bool write_buffer_to_statsd_queue(const uint8_t* buffer, size_t size, uint32_t a
     return queue.write(buffer, size, atomId);
 }
 
-#ifdef ENABLE_BENCHMARK_SUPPORT
 bool should_write_via_queue(uint32_t atomId) {
+<<<<<<< HEAD
 #else
 bool should_write_via_queue(uint32_t /*atomId*/) {
 #endif
     #ifdef _MSC_VER
     return true;
     #else
+=======
+    // bootstats is very short living process - queue does not have sufficient
+    // time to be drained entirely so writing this atom straight to socket
+    if (atomId == kBootTimeEventElapsedTimeAtomId) {
+        return false;
+    }
+
+>>>>>>> 125526846
     const uint32_t appUid = getuid();
 
     // hard-coded push all system server atoms to queue

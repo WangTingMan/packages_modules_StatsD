@@ -36,6 +36,7 @@ namespace android {
 namespace os {
 namespace statsd {
 
+using aidl::android::util::StatsEventParcel;
 using android::util::ProtoOutputStream;
 using android::util::ProtoReader;
 using ::ndk::SharedRefBase;
@@ -55,6 +56,11 @@ const vector<string> kApps{kApp1, kApp2, kApp3};
 const vector<string> kInstallers{"", "", "com.android.vending"};
 const vector<vector<uint8_t>> kCertificateHashes{{'a', 'z'}, {'b', 'c'}, {'d', 'e'}};
 const vector<uint8_t> kDeleted(3, false);
+
+const UidMapOptions DEFAULT_OPTIONS = {.includeVersionStrings = true,
+                                       .includeInstaller = true,
+                                       .truncatedCertificateHashSize = 0,
+                                       .omitSystemUids = false};
 
 UidData createUidData(const vector<int32_t>& uids, const vector<int64_t>& versions,
                       const vector<string>& versionStrings, const vector<string>& apps,
@@ -348,10 +354,7 @@ TEST(UidMapTest, TestOutputIncludesAtLeastOneSnapshot) {
     m.mLastUpdatePerConfigKey[config1] = 2;
 
     ProtoOutputStream proto;
-    m.appendUidMap(/* timestamp */ 3, config1, /* includeVersionStrings */ true,
-                   /* includeInstaller */ true, /* truncatedCertificateHashSize */ 0,
-                   /* omitSystemUids */ false,
-                   /* str_set */ nullptr, &proto);
+    m.appendUidMap(/* timestamp */ 3, config1, DEFAULT_OPTIONS, /* str_set */ nullptr, &proto);
 
     // Check there's still a uidmap attached this one.
     UidMapping results;
@@ -373,9 +376,7 @@ TEST(UidMapTest, TestRemovedAppRetained) {
     m.removeApp(2, kApp2, 1000);
 
     ProtoOutputStream proto;
-    m.appendUidMap(/* timestamp */ 3, config1, /* includeVersionStrings */ true,
-                   /* includeInstaller */ true, /* truncatedCertificateHashSize */ 0,
-                   /* omitSystemUids */ false,
+    m.appendUidMap(/* timestamp */ 3, config1, DEFAULT_OPTIONS,
                    /* str_set */ nullptr, &proto);
 
     // Snapshot should still contain this item as deleted.
@@ -401,9 +402,7 @@ TEST(UidMapTest, TestRemovedAppOverGuardrail) {
     // First, verify that we have the expected number of items.
     UidMapping results;
     ProtoOutputStream proto;
-    m.appendUidMap(/* timestamp */ 3, config1, /* includeVersionStrings */ true,
-                   /* includeInstaller */ true, /* truncatedCertificateHashSize */ 0,
-                   /* omitSystemUids */ false,
+    m.appendUidMap(/* timestamp */ 3, config1, DEFAULT_OPTIONS,
                    /* str_set */ nullptr, &proto);
     outputStreamToProto(&proto, &results);
     ASSERT_EQ(maxDeletedApps + 10, results.snapshots(0).package_info_size());
@@ -415,9 +414,7 @@ TEST(UidMapTest, TestRemovedAppOverGuardrail) {
     }
 
     proto.clear();
-    m.appendUidMap(/* timestamp */ 5, config1, /* includeVersionStrings */ true,
-                   /* includeInstaller */ true, /* truncatedCertificateHashSize */ 0,
-                   /* omitSystemUids */ false,
+    m.appendUidMap(/* timestamp */ 5, config1, DEFAULT_OPTIONS,
                    /* str_set */ nullptr, &proto);
     // Snapshot drops the first nine items.
     outputStreamToProto(&proto, &results);
@@ -438,9 +435,7 @@ TEST(UidMapTest, TestClearingOutput) {
     m.updateMap(1 /* timestamp */, uidData);
 
     ProtoOutputStream proto;
-    m.appendUidMap(/* timestamp */ 2, config1, /* includeVersionStrings */ true,
-                   /* includeInstaller */ true, /* truncatedCertificateHashSize */ 0,
-                   /* omitSystemUids */ false,
+    m.appendUidMap(/* timestamp */ 2, config1, DEFAULT_OPTIONS,
                    /* str_set */ nullptr, &proto);
     UidMapping results;
     outputStreamToProto(&proto, &results);
@@ -448,9 +443,7 @@ TEST(UidMapTest, TestClearingOutput) {
 
     // We have to keep at least one snapshot in memory at all times.
     proto.clear();
-    m.appendUidMap(/* timestamp */ 2, config1, /* includeVersionStrings */ true,
-                   /* includeInstaller */ true, /* truncatedCertificateHashSize */ 0,
-                   /* omitSystemUids */ false,
+    m.appendUidMap(/* timestamp */ 2, config1, DEFAULT_OPTIONS,
                    /* str_set */ nullptr, &proto);
     outputStreamToProto(&proto, &results);
     ASSERT_EQ(1, results.snapshots_size());
@@ -460,9 +453,7 @@ TEST(UidMapTest, TestClearingOutput) {
     m.updateApp(5, kApp1, 1000, 40, "v40", "", /* certificateHash */ {});
     ASSERT_EQ(1U, m.mChanges.size());
     proto.clear();
-    m.appendUidMap(/* timestamp */ 6, config1, /* includeVersionStrings */ true,
-                   /* includeInstaller */ true, /* truncatedCertificateHashSize */ 0,
-                   /* omitSystemUids */ false,
+    m.appendUidMap(/* timestamp */ 6, config1, DEFAULT_OPTIONS,
                    /* str_set */ nullptr, &proto);
     outputStreamToProto(&proto, &results);
     ASSERT_EQ(1, results.snapshots_size());
@@ -475,9 +466,7 @@ TEST(UidMapTest, TestClearingOutput) {
 
     // We still can't remove anything.
     proto.clear();
-    m.appendUidMap(/* timestamp */ 8, config1, /* includeVersionStrings */ true,
-                   /* includeInstaller */ true, /* truncatedCertificateHashSize */ 0,
-                   /* omitSystemUids */ false,
+    m.appendUidMap(/* timestamp */ 8, config1, DEFAULT_OPTIONS,
                    /* str_set */ nullptr, &proto);
     outputStreamToProto(&proto, &results);
     ASSERT_EQ(1, results.snapshots_size());
@@ -485,9 +474,7 @@ TEST(UidMapTest, TestClearingOutput) {
     ASSERT_EQ(2U, m.mChanges.size());
 
     proto.clear();
-    m.appendUidMap(/* timestamp */ 9, config2, /* includeVersionStrings */ true,
-                   /* includeInstaller */ true, /* truncatedCertificateHashSize */ 0,
-                   /* omitSystemUids */ false,
+    m.appendUidMap(/* timestamp */ 9, config2, DEFAULT_OPTIONS,
                    /* str_set */ nullptr, &proto);
     outputStreamToProto(&proto, &results);
     ASSERT_EQ(1, results.snapshots_size());
@@ -510,15 +497,11 @@ TEST(UidMapTest, TestMemoryComputed) {
     m.updateApp(3, kApp1, 1000, 40, "v40", "", /* certificateHash */ {});
 
     ProtoOutputStream proto;
-    m.appendUidMap(/* timestamp */ 2, config1, /* includeVersionStrings */ true,
-                   /* includeInstaller */ true, /* truncatedCertificateHashSize */ 0,
-                   /* omitSystemUids */ false,
+    m.appendUidMap(/* timestamp */ 2, config1, DEFAULT_OPTIONS,
                    /* str_set */ nullptr, &proto);
     size_t prevBytes = m.mBytesUsed;
 
-    m.appendUidMap(/* timestamp */ 4, config1, /* includeVersionStrings */ true,
-                   /* includeInstaller */ true, /* truncatedCertificateHashSize */ 0,
-                   /* omitSystemUids */ false,
+    m.appendUidMap(/* timestamp */ 4, config1, DEFAULT_OPTIONS,
                    /* str_set */ nullptr, &proto);
     EXPECT_TRUE(m.mBytesUsed < prevBytes);
 }
@@ -580,9 +563,7 @@ protected:
 TEST_F(UidMapTestAppendUidMap, TestInstallersInReportIncludeInstallerAndHashStrings) {
     ProtoOutputStream proto;
     set<string> strSet;
-    uidMap->appendUidMap(/* timestamp */ 3, cfgKey, /* includeVersionStrings */ true,
-                         /* includeInstaller */ true, /* truncatedCertificateHashSize */ 0,
-                         /* omitSystemUids */ false, &strSet, &proto);
+    uidMap->appendUidMap(/* timestamp */ 3, cfgKey, DEFAULT_OPTIONS, &strSet, &proto);
 
     UidMapping results;
     outputStreamToProto(&proto, &results);
@@ -616,9 +597,7 @@ TEST_F(UidMapTestAppendUidMap, TestInstallersInReportIncludeInstallerAndHashStri
 
 TEST_F(UidMapTestAppendUidMap, TestInstallersInReportIncludeInstallerAndDontHashStrings) {
     ProtoOutputStream proto;
-    uidMap->appendUidMap(/* timestamp */ 3, cfgKey, /* includeVersionStrings */ true,
-                         /* includeInstaller */ true, /* truncatedCertificateHashSize */ 0,
-                         /* omitSystemUids */ false,
+    uidMap->appendUidMap(/* timestamp */ 3, cfgKey, DEFAULT_OPTIONS,
                          /* str_set */ nullptr, &proto);
 
     UidMapping results;
@@ -666,9 +645,9 @@ INSTANTIATE_TEST_SUITE_P(
 
 TEST_P(UidMapTestAppendUidMapHashStrings, TestNoIncludeInstallersInReport) {
     ProtoOutputStream proto;
-    uidMap->appendUidMap(/* timestamp */ 3, cfgKey, /* includeVersionStrings */ true,
-                         /* includeInstaller */ false, /* truncatedCertificateHashSize */ 0,
-                         /* omitSystemUids */ false,
+    UidMapOptions options = DEFAULT_OPTIONS;
+    options.includeInstaller = false;
+    uidMap->appendUidMap(/* timestamp */ 3, cfgKey, options,
                          /* str_set */ GetParam(), &proto);
 
     UidMapping results;
@@ -700,8 +679,10 @@ INSTANTIATE_TEST_SUITE_P(ZeroOneTwoThree, UidMapTestTruncateCertificateHash,
 TEST_P(UidMapTestTruncateCertificateHash, TestCertificateHashesTruncated) {
     const uint8_t hashSize = GetParam();
     ProtoOutputStream proto;
-    uidMap->appendUidMap(/* timestamp */ 3, cfgKey, /* includeVersionStrings */ true,
-                         /* includeInstaller */ false, hashSize, /* omitSystemUids */ false,
+    UidMapOptions options = DEFAULT_OPTIONS;
+    options.includeInstaller = false;
+    options.truncatedCertificateHashSize = hashSize;
+    uidMap->appendUidMap(/* timestamp */ 3, cfgKey, options,
                          /* str_set */ nullptr, &proto);
 
     UidMapping results;
@@ -723,7 +704,7 @@ TEST_P(UidMapTestTruncateCertificateHash, TestCertificateHashesTruncated) {
                 UnorderedPointwise(EqPackageInfo(), expectedPackageInfos));
 }
 
-class UidMapTestAppendUidMapSystemUids : public UidMapTestAppendUidMapBase {
+class UidMapTestAppendUidMapSystemUsedUids : public UidMapTestAppendUidMapBase {
 protected:
     static const uint64_t bucketStartTimeNs = 10000000000;  // 0:10
     uint64_t bucketSizeNs = TimeUnitToBucketSizeInMillis(TEN_MINUTES) * 1000000LL;
@@ -754,7 +735,7 @@ protected:
                           /* installer */ "", /* certificateHash */ {});
 
         *config.add_atom_matcher() =
-                CreateSimpleAtomMatcher("TestAtomMatcher", util::TEST_ATOM_REPORTED);
+                CreateSimpleAtomMatcher("TestAtomMatcher", util::SYNC_STATE_CHANGED);
         *config.add_event_metric() =
                 createEventMetric("TestAtomReported", config.atom_matcher(0).id(), nullopt);
     }
@@ -774,28 +755,30 @@ protected:
     }
 };
 
-TEST_F(UidMapTestAppendUidMapSystemUids, testHasSystemUids) {
+TEST_F(UidMapTestAppendUidMapSystemUsedUids, testHasSystemAndUnusedUids) {
     sp<StatsLogProcessor> processor = createStatsLogProcessor(config);
     UidMapping results = getUidMapping(processor);
 
     ASSERT_EQ(results.snapshots_size(), 1);
-    EXPECT_THAT(results.snapshots(0).package_info(),
-                IsSupersetOf({
-                        Property(&PackageInfo::uid, AID_LMKD),
-                        Property(&PackageInfo::uid, AID_USER_OFFSET + AID_UWB),
-                        Property(&PackageInfo::uid, AID_ROOT),
-                        Property(&PackageInfo::uid, AID_APP_START - 1),
-                }));
+    EXPECT_THAT(
+            results.snapshots(0).package_info(),
+            UnorderedElementsAre(Property(&PackageInfo::uid, AID_LMKD),
+                                 Property(&PackageInfo::uid, AID_USER_OFFSET + AID_UWB),
+                                 Property(&PackageInfo::uid, AID_ROOT),
+                                 Property(&PackageInfo::uid, AID_APP_START - 1),
+                                 Property(&PackageInfo::uid, AID_APP_START),
+                                 Property(&PackageInfo::uid, AID_APP_START + 1),
+                                 Property(&PackageInfo::uid, AID_USER_OFFSET + AID_APP_START + 2)));
 
-    EXPECT_THAT(results.changes(), IsSupersetOf({
-                                           Property(&Change::uid, AID_LMKD),
-                                           Property(&Change::uid, AID_USER_OFFSET + AID_UWB),
-                                           Property(&Change::uid, AID_ROOT),
-                                           Property(&Change::uid, AID_APP_START - 1),
-                                   }));
+    EXPECT_THAT(results.changes(),
+                UnorderedElementsAre(Property(&Change::uid, AID_LMKD),
+                                     Property(&Change::uid, AID_USER_OFFSET + AID_UWB),
+                                     Property(&Change::uid, AID_ROOT),
+                                     Property(&Change::uid, AID_APP_START - 1),
+                                     Property(&Change::uid, AID_APP_START)));
 }
 
-TEST_F(UidMapTestAppendUidMapSystemUids, testHasNoSystemUids) {
+TEST_F(UidMapTestAppendUidMapSystemUsedUids, testHasNoSystemUids) {
     config.mutable_statsd_config_options()->set_omit_system_uids_in_uidmap(true);
     sp<StatsLogProcessor> processor = createStatsLogProcessor(config);
     UidMapping results = getUidMapping(processor);
@@ -807,6 +790,400 @@ TEST_F(UidMapTestAppendUidMapSystemUids, testHasNoSystemUids) {
                                     Not(Eq(AID_ROOT)), Not(Eq(AID_APP_START - 1))))));
 
     EXPECT_THAT(results.changes(), ElementsAre(Property(&Change::uid, AID_APP_START)));
+}
+
+TEST_F(UidMapTestAppendUidMapSystemUsedUids, testOmitSystemAndUnusedUidsEmpty) {
+    config.mutable_statsd_config_options()->set_omit_system_uids_in_uidmap(true);
+    config.mutable_statsd_config_options()->set_omit_unused_uids_in_uidmap(true);
+
+    sp<StatsLogProcessor> processor = createStatsLogProcessor(config);
+    UidMapping results = getUidMapping(processor);
+
+    ASSERT_EQ(results.snapshots_size(), 1);
+    ASSERT_EQ(results.snapshots(0).package_info_size(), 0);
+    ASSERT_EQ(results.changes_size(), 0);
+}
+
+TEST_F(UidMapTestAppendUidMapSystemUsedUids, testOmitSystemAndUnusedUids) {
+    config.mutable_statsd_config_options()->set_omit_system_uids_in_uidmap(true);
+    config.mutable_statsd_config_options()->set_omit_unused_uids_in_uidmap(true);
+
+    sp<StatsLogProcessor> processor = createStatsLogProcessor(config);
+
+    auto event = CreateSyncStartEvent(bucketStartTimeNs + 1, {AID_LMKD, AID_APP_START + 1},
+                                      {"tag", "tag"}, "sync_name");
+    processor->OnLogEvent(event.get());
+
+    UidMapping results = getUidMapping(processor);
+
+    ASSERT_EQ(results.snapshots_size(), 1);
+    EXPECT_THAT(results.snapshots(0).package_info(),
+                UnorderedElementsAre(Property(&PackageInfo::uid, AID_APP_START + 1)));
+    ASSERT_EQ(results.changes_size(), 0);
+}
+
+TEST_F(UidMapTestAppendUidMapSystemUsedUids, testOmitSystemAndUnusedUidsEmptyWithAllowlist) {
+    config.mutable_statsd_config_options()->set_omit_system_uids_in_uidmap(true);
+    config.mutable_statsd_config_options()->set_omit_unused_uids_in_uidmap(true);
+    config.mutable_statsd_config_options()->add_uidmap_package_allowlist("LMKD");
+    config.mutable_statsd_config_options()->add_uidmap_package_allowlist("app4");
+
+    sp<StatsLogProcessor> processor = createStatsLogProcessor(config);
+    UidMapping results = getUidMapping(processor);
+
+    ASSERT_EQ(results.snapshots_size(), 1);
+    EXPECT_THAT(results.snapshots(0).package_info(),
+                UnorderedElementsAre(Property(&PackageInfo::uid, AID_LMKD),
+                                     Property(&PackageInfo::uid, AID_APP_START)));
+    EXPECT_THAT(results.changes(), UnorderedElementsAre(Property(&Change::uid, AID_LMKD),
+                                                        Property(&Change::uid, AID_APP_START)));
+}
+
+TEST_F(UidMapTestAppendUidMapSystemUsedUids, testOmitSystemAndUnusedUidsWithAllowlist) {
+    config.mutable_statsd_config_options()->set_omit_system_uids_in_uidmap(true);
+    config.mutable_statsd_config_options()->set_omit_unused_uids_in_uidmap(true);
+    config.mutable_statsd_config_options()->add_uidmap_package_allowlist("LMKD");
+    config.mutable_statsd_config_options()->add_uidmap_package_allowlist("app1");
+
+    sp<StatsLogProcessor> processor = createStatsLogProcessor(config);
+    auto event = CreateSyncStartEvent(bucketStartTimeNs + 1, {AID_ROOT, AID_LMKD, AID_APP_START},
+                                      {"tag", "tag", "tag"}, "sync_name");
+    processor->OnLogEvent(event.get());
+    UidMapping results = getUidMapping(processor);
+
+    ASSERT_EQ(results.snapshots_size(), 1);
+    EXPECT_THAT(results.snapshots(0).package_info(),
+                UnorderedElementsAre(Property(&PackageInfo::uid, AID_LMKD),
+                                     Property(&PackageInfo::uid, AID_APP_START),
+                                     Property(&PackageInfo::uid, AID_APP_START + 1)));
+    EXPECT_THAT(results.changes(), UnorderedElementsAre(Property(&Change::uid, AID_LMKD),
+                                                        Property(&Change::uid, AID_APP_START)));
+}
+
+TEST(UidMapTest, TestUsedUidsE2e) {
+    const int ATOM_1 = 1, ATOM_2 = 2, ATOM_3 = 3, ATOM_4 = 4, ATOM_5 = 10001, ATOM_6 = 6;
+    StatsdConfig config;
+    config.mutable_statsd_config_options()->set_omit_unused_uids_in_uidmap(true);
+    config.add_default_pull_packages("AID_ROOT");  // Fake puller is registered with root.
+    AtomMatcher eventMatcher = CreateSimpleAtomMatcher("M1", ATOM_1);
+    *config.add_atom_matcher() = eventMatcher;
+    AtomMatcher countMatcher = CreateSimpleAtomMatcher("M2", ATOM_2);
+    *config.add_atom_matcher() = countMatcher;
+    AtomMatcher durationStartMatcher = CreateSimpleAtomMatcher("M3_START", ATOM_3);
+    auto fvmStart = durationStartMatcher.mutable_simple_atom_matcher()->add_field_value_matcher();
+    fvmStart->set_field(2);  // State field.
+    fvmStart->set_eq_int(0);
+    *config.add_atom_matcher() = durationStartMatcher;
+    AtomMatcher durationStopMatcher = CreateSimpleAtomMatcher("M3_STOP", ATOM_3);
+    auto fvmStop = durationStopMatcher.mutable_simple_atom_matcher()->add_field_value_matcher();
+    fvmStop->set_field(2);
+    fvmStop->set_eq_int(1);
+    *config.add_atom_matcher() = durationStopMatcher;
+    AtomMatcher gaugeMatcher = CreateSimpleAtomMatcher("M4", ATOM_4);
+    *config.add_atom_matcher() = gaugeMatcher;
+    AtomMatcher valueMatcher = CreateSimpleAtomMatcher("M5", ATOM_5);
+    *config.add_atom_matcher() = valueMatcher;
+    AtomMatcher kllMatcher = CreateSimpleAtomMatcher("M6", ATOM_6);
+    *config.add_atom_matcher() = kllMatcher;
+
+    Predicate predicate;
+    predicate.set_id(StringToId("P1"));
+    predicate.mutable_simple_predicate()->set_start(StringToId("M3_START"));
+    predicate.mutable_simple_predicate()->set_stop(StringToId("M3_STOP"));
+    FieldMatcher durDims = CreateDimensions(ATOM_3, {1});
+    *predicate.mutable_simple_predicate()->mutable_dimensions() = durDims;
+    *config.add_predicate() = predicate;
+
+    *config.add_event_metric() = createEventMetric("EVENT", eventMatcher.id(), nullopt);
+    CountMetric countMetric = createCountMetric("COUNT", countMatcher.id(), nullopt, {});
+    *countMetric.mutable_dimensions_in_what() =
+            CreateAttributionUidDimensions(ATOM_2, {Position::FIRST});
+    *config.add_count_metric() = countMetric;
+    DurationMetric durationMetric = createDurationMetric("DUR", predicate.id(), nullopt, {});
+    *durationMetric.mutable_dimensions_in_what() = durDims;
+    *config.add_duration_metric() = durationMetric;
+    GaugeMetric gaugeMetric = createGaugeMetric("GAUGE", gaugeMatcher.id(),
+                                                GaugeMetric::FIRST_N_SAMPLES, nullopt, nullopt);
+    *gaugeMetric.mutable_dimensions_in_what() = CreateDimensions(ATOM_4, {1});
+    *config.add_gauge_metric() = gaugeMetric;
+    ValueMetric valueMetric = createValueMetric("VALUE", valueMatcher, 2, nullopt, {});
+    valueMetric.set_skip_zero_diff_output(false);
+    *valueMetric.mutable_dimensions_in_what() =
+            CreateAttributionUidDimensions(ATOM_5, {Position::FIRST});
+    *config.add_value_metric() = valueMetric;
+    KllMetric kllMetric = createKllMetric("KLL", kllMatcher, 2, nullopt);
+    *kllMetric.mutable_dimensions_in_what() = CreateDimensions(ATOM_6, {1});
+    *config.add_kll_metric() = kllMetric;
+
+    int64_t startTimeNs = getElapsedRealtimeNs();
+    sp<UidMap> uidMap = new UidMap();
+    const int UID_1 = 11, UID_2 = 12, UID_3 = 13, UID_4 = 14, UID_5 = 15, UID_6 = 16, UID_7 = 17,
+              UID_8 = 18, UID_9 = 19;
+    int extraUids = 10;  // Extra uids in the uid map that aren't referenced in the metric report.
+    int extraUidStart = 1000;
+    vector<int> uids = {UID_1, UID_2, UID_3, UID_4, UID_5, UID_6, UID_7, UID_8, UID_9};
+    int numUids = extraUids + uids.size();
+    for (int i = 0; i < extraUids; i++) {
+        uids.push_back(extraUidStart + i);
+    }
+    // We only care about the uids for this test. Give defaults to everything else.
+    vector<int64_t> versions(numUids, 0);
+    vector<string> versionStrings(numUids, "");
+    vector<string> apps(numUids, "");
+    vector<string> installers(numUids, "");
+    vector<uint8_t> hash;
+    vector<vector<uint8_t>> certHashes(numUids, hash);
+    uidMap->updateMap(startTimeNs,
+                      createUidData(uids, versions, versionStrings, apps, installers, certHashes));
+
+    class FakePullAtomCallback : public BnPullAtomCallback {
+    public:
+        int pullNum = 1;
+        Status onPullAtom(int atomTag,
+                          const shared_ptr<IPullAtomResultReceiver>& resultReceiver) override {
+            std::vector<StatsEventParcel> parcels;
+            AStatsEvent* event = makeAttributionStatsEvent(atomTag, 0, {UID_8}, {""}, pullNum, 0);
+            AStatsEvent_build(event);
+
+            size_t size;
+            uint8_t* buffer = AStatsEvent_getBuffer(event, &size);
+
+            StatsEventParcel p;
+            p.buffer.assign(buffer, buffer + size);
+            parcels.push_back(std::move(p));
+            AStatsEvent_release(event);
+            pullNum++;
+            resultReceiver->pullFinished(atomTag, /*success=*/true, parcels);
+            return Status::ok();
+        }
+    };
+
+    ConfigKey key(123, 987);
+    sp<StatsLogProcessor> p =
+            CreateStatsLogProcessor(startTimeNs, startTimeNs, config, key,
+                                    SharedRefBase::make<FakePullAtomCallback>(), ATOM_5, uidMap);
+
+    const uint64_t bucketSizeNs = TimeUnitToBucketSizeInMillis(TEN_MINUTES) * 1000000LL;
+    std::vector<std::shared_ptr<LogEvent>> events;
+    events.push_back(makeUidLogEvent(ATOM_1, startTimeNs + 10, UID_1, 0, 0));
+    events.push_back(makeUidLogEvent(ATOM_1, startTimeNs + 11, UID_2, 0, 0));
+    events.push_back(makeAttributionLogEvent(ATOM_2, startTimeNs + 12, {UID_3}, {""}, 0, 0));
+    events.push_back(makeUidLogEvent(ATOM_3, startTimeNs + 15, UID_5, 0, 0));  // start
+    events.push_back(makeUidLogEvent(ATOM_3, startTimeNs + 18, UID_5, 1, 0));  // stop
+    events.push_back(makeExtraUidsLogEvent(ATOM_4, startTimeNs + 20, UID_6, 0, 0, {UID_7}));
+    events.push_back(makeUidLogEvent(ATOM_6, startTimeNs + 22, UID_9, 0, 0));
+
+    events.push_back(
+            makeAttributionLogEvent(ATOM_2, startTimeNs + bucketSizeNs + 10, {UID_4}, {""}, 0, 0));
+
+    // Send log events to StatsLogProcessor.
+    for (auto& event : events) {
+        p->OnLogEvent(event.get());
+    }
+
+    int64_t dumpTimeNs = startTimeNs + bucketSizeNs + 100 * NS_PER_SEC;
+
+    {
+        ConfigMetricsReportList reports;
+        vector<uint8_t> buffer;
+        p->onDumpReport(key, dumpTimeNs, true, true, ADB_DUMP, NO_TIME_CONSTRAINTS, &buffer);
+        EXPECT_TRUE(reports.ParseFromArray(&buffer[0], buffer.size()));
+        ASSERT_EQ(reports.reports_size(), 1);
+
+        UidMapping uidMappingProto = reports.reports(0).uid_map();
+        ASSERT_EQ(uidMappingProto.snapshots_size(), 1);
+        const RepeatedPtrField<PackageInfo>& pkgs = uidMappingProto.snapshots(0).package_info();
+        set<int32_t> actualUsedUids;
+        std::for_each(pkgs.begin(), pkgs.end(),
+                      [&actualUsedUids](const PackageInfo& p) { actualUsedUids.insert(p.uid()); });
+
+        EXPECT_THAT(actualUsedUids, UnorderedElementsAre(UID_1, UID_2, UID_3, UID_4, UID_5, UID_6,
+                                                         UID_7, UID_8, UID_9));
+    }
+
+    // Verify the set is cleared and only contains the correct ids on the next dump.
+    p->OnLogEvent(makeUidLogEvent(ATOM_1, dumpTimeNs + 10, UID_1, 0, 0).get());
+    {
+        ConfigMetricsReportList reports;
+        vector<uint8_t> buffer;
+        p->onDumpReport(key, dumpTimeNs + 20, true, false, ADB_DUMP, FAST, &buffer);
+        EXPECT_TRUE(reports.ParseFromArray(&buffer[0], buffer.size()));
+        ASSERT_EQ(reports.reports_size(), 1);
+
+        UidMapping uidMappingProto = reports.reports(0).uid_map();
+        ASSERT_EQ(uidMappingProto.snapshots_size(), 1);
+        const RepeatedPtrField<PackageInfo>& pkgs = uidMappingProto.snapshots(0).package_info();
+        set<int32_t> actualUsedUids;
+        std::for_each(pkgs.begin(), pkgs.end(),
+                      [&actualUsedUids](const PackageInfo& p) { actualUsedUids.insert(p.uid()); });
+
+        EXPECT_THAT(actualUsedUids, UnorderedElementsAre(UID_1));
+    }
+}
+
+TEST(UidMapTest, TestUsedUidsFromMetricE2e) {
+    const int ATOM_1 = 1, ATOM_2 = 2, ATOM_3 = 3, ATOM_4 = 4, ATOM_5 = 10001, ATOM_6 = 6;
+    StatsdConfig config;
+    config.mutable_statsd_config_options()->set_omit_unused_uids_in_uidmap(true);
+    config.add_default_pull_packages("AID_ROOT");  // Fake puller is registered with root.
+    AtomMatcher eventMatcher = CreateSimpleAtomMatcher("M1", ATOM_1);
+    *config.add_atom_matcher() = eventMatcher;
+    AtomMatcher countMatcher = CreateSimpleAtomMatcher("M2", ATOM_2);
+    *config.add_atom_matcher() = countMatcher;
+    AtomMatcher durationStartMatcher = CreateSimpleAtomMatcher("M3_START", ATOM_3);
+    auto fvmStart = durationStartMatcher.mutable_simple_atom_matcher()->add_field_value_matcher();
+    fvmStart->set_field(2);  // State field.
+    fvmStart->set_eq_int(0);
+    *config.add_atom_matcher() = durationStartMatcher;
+    AtomMatcher durationStopMatcher = CreateSimpleAtomMatcher("M3_STOP", ATOM_3);
+    auto fvmStop = durationStopMatcher.mutable_simple_atom_matcher()->add_field_value_matcher();
+    fvmStop->set_field(2);
+    fvmStop->set_eq_int(1);
+    *config.add_atom_matcher() = durationStopMatcher;
+    AtomMatcher gaugeMatcher = CreateSimpleAtomMatcher("M4", ATOM_4);
+    *config.add_atom_matcher() = gaugeMatcher;
+    AtomMatcher valueMatcher = CreateSimpleAtomMatcher("M5", ATOM_5);
+    *config.add_atom_matcher() = valueMatcher;
+    AtomMatcher kllMatcher = CreateSimpleAtomMatcher("M6", ATOM_6);
+    *config.add_atom_matcher() = kllMatcher;
+
+    Predicate predicate;
+    predicate.set_id(StringToId("P1"));
+    predicate.mutable_simple_predicate()->set_start(StringToId("M3_START"));
+    predicate.mutable_simple_predicate()->set_stop(StringToId("M3_STOP"));
+    FieldMatcher durDims = CreateDimensions(ATOM_3, {1});
+    *predicate.mutable_simple_predicate()->mutable_dimensions() = durDims;
+    *config.add_predicate() = predicate;
+
+    EventMetric eventMetric = createEventMetric("EVENT", eventMatcher.id(), nullopt);
+    *eventMetric.mutable_uid_fields() = CreateDimensions(ATOM_1, {1});
+    *config.add_event_metric() = eventMetric;
+    CountMetric countMetric = createCountMetric("COUNT", countMatcher.id(), nullopt, {});
+    *countMetric.mutable_dimensions_in_what() = CreateDimensions(ATOM_2, {1});
+    *countMetric.mutable_uid_fields() = CreateDimensions(ATOM_2, {1});
+    *config.add_count_metric() = countMetric;
+    DurationMetric durationMetric = createDurationMetric("DUR", predicate.id(), nullopt, {});
+    *durationMetric.mutable_dimensions_in_what() = durDims;
+    *durationMetric.mutable_uid_fields() = durDims;
+    *config.add_duration_metric() = durationMetric;
+    GaugeMetric gaugeMetric = createGaugeMetric("GAUGE", gaugeMatcher.id(),
+                                                GaugeMetric::FIRST_N_SAMPLES, nullopt, nullopt);
+    *gaugeMetric.mutable_dimensions_in_what() = CreateDimensions(ATOM_4, {1});
+    *gaugeMetric.mutable_uid_fields() = CreateDimensions(ATOM_4, {1, 2});
+    *config.add_gauge_metric() = gaugeMetric;
+    ValueMetric valueMetric = createValueMetric("VALUE", valueMatcher, 2, nullopt, {});
+    valueMetric.set_skip_zero_diff_output(false);
+    *valueMetric.mutable_dimensions_in_what() = CreateDimensions(ATOM_5, {1});
+    *valueMetric.mutable_uid_fields() = CreateDimensions(ATOM_5, {1});
+    *config.add_value_metric() = valueMetric;
+    KllMetric kllMetric = createKllMetric("KLL", kllMatcher, 2, nullopt);
+    *kllMetric.mutable_dimensions_in_what() = CreateDimensions(ATOM_6, {1});
+    *kllMetric.mutable_uid_fields() = CreateDimensions(ATOM_6, {1});
+    *config.add_kll_metric() = kllMetric;
+
+    int64_t startTimeNs = getElapsedRealtimeNs();
+    sp<UidMap> uidMap = new UidMap();
+    const int UID_1 = 11, UID_2 = 12, UID_3 = 13, UID_4 = 14, UID_5 = 15, UID_6 = 16, UID_7 = 17,
+              UID_8 = 18, UID_9 = 19;
+    int extraUids = 10;  // Extra uids in the uid map that aren't referenced in the metric report.
+    int extraUidStart = 1000;
+    vector<int> uids = {UID_1, UID_2, UID_3, UID_4, UID_5, UID_6, UID_7, UID_8, UID_9};
+    int numUids = extraUids + uids.size();
+    for (int i = 0; i < extraUids; i++) {
+        uids.push_back(extraUidStart + i);
+    }
+    // We only care about the uids for this test. Give defaults to everything else.
+    vector<int64_t> versions(numUids, 0);
+    vector<string> versionStrings(numUids, "");
+    vector<string> apps(numUids, "");
+    vector<string> installers(numUids, "");
+    vector<uint8_t> hash;
+    vector<vector<uint8_t>> certHashes(numUids, hash);
+    uidMap->updateMap(startTimeNs,
+                      createUidData(uids, versions, versionStrings, apps, installers, certHashes));
+
+    class FakePullAtomCallback : public BnPullAtomCallback {
+    public:
+        int pullNum = 1;
+        Status onPullAtom(int atomTag,
+                          const shared_ptr<IPullAtomResultReceiver>& resultReceiver) override {
+            std::vector<StatsEventParcel> parcels;
+            AStatsEvent* event = makeTwoValueStatsEvent(atomTag, 0, UID_8, pullNum);
+            AStatsEvent_build(event);
+
+            size_t size;
+            uint8_t* buffer = AStatsEvent_getBuffer(event, &size);
+
+            StatsEventParcel p;
+            p.buffer.assign(buffer, buffer + size);
+            parcels.push_back(std::move(p));
+            AStatsEvent_release(event);
+            pullNum++;
+            resultReceiver->pullFinished(atomTag, /*success=*/true, parcels);
+            return Status::ok();
+        }
+    };
+
+    ConfigKey key(123, 987);
+    sp<StatsLogProcessor> p =
+            CreateStatsLogProcessor(startTimeNs, startTimeNs, config, key,
+                                    SharedRefBase::make<FakePullAtomCallback>(), ATOM_5, uidMap);
+
+    const uint64_t bucketSizeNs = TimeUnitToBucketSizeInMillis(TEN_MINUTES) * 1000000LL;
+    std::vector<std::shared_ptr<LogEvent>> events;
+    events.push_back(CreateTwoValueLogEvent(ATOM_1, startTimeNs + 10, UID_1, 0));
+    events.push_back(CreateTwoValueLogEvent(ATOM_1, startTimeNs + 11, UID_2, 0));
+    events.push_back(CreateTwoValueLogEvent(ATOM_2, startTimeNs + 12, UID_3, 0));
+    events.push_back(CreateTwoValueLogEvent(ATOM_3, startTimeNs + 15, UID_5, 0));  // start
+    events.push_back(CreateTwoValueLogEvent(ATOM_3, startTimeNs + 18, UID_5, 1));  // stop
+    events.push_back(CreateTwoValueLogEvent(ATOM_4, startTimeNs + 20, UID_6, UID_7));
+    events.push_back(CreateTwoValueLogEvent(ATOM_6, startTimeNs + 22, UID_9, 0));
+
+    events.push_back(CreateTwoValueLogEvent(ATOM_2, startTimeNs + bucketSizeNs + 10, UID_4, 0));
+
+    // Send log events to StatsLogProcessor.
+    for (auto& event : events) {
+        p->OnLogEvent(event.get());
+    }
+
+    int64_t dumpTimeNs = startTimeNs + bucketSizeNs + 100 * NS_PER_SEC;
+
+    {
+        ConfigMetricsReportList reports;
+        vector<uint8_t> buffer;
+        p->onDumpReport(key, dumpTimeNs, true, true, ADB_DUMP, NO_TIME_CONSTRAINTS, &buffer);
+        EXPECT_TRUE(reports.ParseFromArray(&buffer[0], buffer.size()));
+        ASSERT_EQ(reports.reports_size(), 1);
+
+        UidMapping uidMappingProto = reports.reports(0).uid_map();
+        ASSERT_EQ(uidMappingProto.snapshots_size(), 1);
+        const RepeatedPtrField<PackageInfo>& pkgs = uidMappingProto.snapshots(0).package_info();
+        set<int32_t> actualUsedUids;
+        std::for_each(pkgs.begin(), pkgs.end(),
+                      [&actualUsedUids](const PackageInfo& p) { actualUsedUids.insert(p.uid()); });
+
+        EXPECT_THAT(actualUsedUids, UnorderedElementsAre(UID_1, UID_2, UID_3, UID_4, UID_5, UID_6,
+                                                         UID_7, UID_8, UID_9));
+    }
+
+    // Verify the set is cleared and only contains the correct ids on the next dump.
+    p->OnLogEvent(CreateTwoValueLogEvent(ATOM_1, dumpTimeNs + 10, UID_1, 0).get());
+    {
+        ConfigMetricsReportList reports;
+        vector<uint8_t> buffer;
+        p->onDumpReport(key, dumpTimeNs + 20, true, false, ADB_DUMP, FAST, &buffer);
+        EXPECT_TRUE(reports.ParseFromArray(&buffer[0], buffer.size()));
+        ASSERT_EQ(reports.reports_size(), 1);
+
+        UidMapping uidMappingProto = reports.reports(0).uid_map();
+        ASSERT_EQ(uidMappingProto.snapshots_size(), 1);
+        const RepeatedPtrField<PackageInfo>& pkgs = uidMappingProto.snapshots(0).package_info();
+        set<int32_t> actualUsedUids;
+        std::for_each(pkgs.begin(), pkgs.end(),
+                      [&actualUsedUids](const PackageInfo& p) { actualUsedUids.insert(p.uid()); });
+
+        EXPECT_THAT(actualUsedUids, UnorderedElementsAre(UID_1));
+    }
 }
 
 }  // anonymous namespace

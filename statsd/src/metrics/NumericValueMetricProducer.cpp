@@ -25,6 +25,7 @@
 
 #include "FieldValue.h"
 #include "guardrail/StatsdStats.h"
+#include "metrics/HistogramValue.h"
 #include "metrics/NumericValue.h"
 #include "metrics/parsing_utils/metrics_manager_util.h"
 #include "stats_log_util.h"
@@ -52,6 +53,7 @@ const int FIELD_ID_VALUE_METRICS = 7;
 const int FIELD_ID_VALUE_INDEX = 1;
 const int FIELD_ID_VALUE_LONG = 2;
 const int FIELD_ID_VALUE_DOUBLE = 3;
+const int FIELD_ID_VALUE_HISTOGRAM = 5;
 const int FIELD_ID_VALUE_SAMPLESIZE = 4;
 const int FIELD_ID_VALUES = 9;
 const int FIELD_ID_BUCKET_NUM = 4;
@@ -60,8 +62,12 @@ const int FIELD_ID_END_BUCKET_ELAPSED_MILLIS = 6;
 const int FIELD_ID_CONDITION_TRUE_NS = 10;
 const int FIELD_ID_CONDITION_CORRECTION_NS = 11;
 
-constexpr NumericValue ZERO_LONG((int64_t)0);
-constexpr NumericValue ZERO_DOUBLE((double)0);
+const NumericValue ZERO_LONG((int64_t)0);
+const NumericValue ZERO_DOUBLE((double)0);
+
+double toDouble(const NumericValue& value) {
+    return value.is<int64_t>() ? value.getValue<int64_t>() : value.getValueOrDefault<double>(0);
+}
 
 }  // anonymous namespace
 
@@ -88,7 +94,8 @@ NumericValueMetricProducer::NumericValueMetricProducer(
       mHasGlobalBase(false),
       mMaxPullDelayNs(metric.has_max_pull_delay_sec() ? metric.max_pull_delay_sec() * NS_PER_SEC
                                                       : StatsdStats::kPullMaxDelayNs),
-      mDedupedFieldMatchers(dedupFieldMatchers(whatOptions.fieldMatchers)) {
+      mDedupedFieldMatchers(dedupFieldMatchers(whatOptions.fieldMatchers)),
+      mBinStartsList(whatOptions.binStartsList) {
     // TODO(b/186677791): Use initializer list to initialize mUploadThreshold.
     if (metric.has_threshold()) {
         mUploadThreshold = metric.threshold();
@@ -139,6 +146,13 @@ void NumericValueMetricProducer::writePastBucketAggregateToProto(
         const double val = value.getValue<double>();
         protoOutput->write(FIELD_TYPE_DOUBLE | FIELD_ID_VALUE_DOUBLE, val);
         VLOG("\t\t value %d: %.2f", aggIndex, val);
+    } else if (value.is<HistogramValue>()) {
+        const HistogramValue& val = value.getValue<HistogramValue>();
+        const uint64_t histToken =
+                protoOutput->start(FIELD_TYPE_MESSAGE | FIELD_ID_VALUE_HISTOGRAM);
+        val.toProto(*protoOutput);
+        protoOutput->end(histToken);
+        VLOG("\t\t value %d: %s", aggIndex, val.toString().c_str());
     } else {
         VLOG("Wrong value type for ValueMetric output");
     }
@@ -376,7 +390,22 @@ bool NumericValueMetricProducer::hitFullBucketGuardRailLocked(const MetricDimens
 }
 
 namespace {
-NumericValue getDoubleOrLong(const LogEvent& event, const Matcher& matcher) {
+NumericValue getAggregationInputValue(const LogEvent& event, const Matcher& matcher) {
+    if (matcher.hasAllPositionMatcher()) {  // client-aggregated histogram
+        vector<int> binCounts;
+        for (const FieldValue& value : event.getValues()) {
+            if (!value.mField.matches(matcher)) {
+                continue;
+            }
+            if (value.mValue.getType() == INT) {
+                binCounts.push_back(value.mValue.int_value);
+            } else {
+                return NumericValue{};
+            }
+        }
+        return NumericValue(HistogramValue(binCounts));
+    }
+
     for (const FieldValue& value : event.getValues()) {
         if (!value.mField.matches(matcher)) {
             continue;
@@ -396,6 +425,16 @@ NumericValue getDoubleOrLong(const LogEvent& event, const Matcher& matcher) {
     }
     return NumericValue{};
 }
+
+void addValueToHistogram(const NumericValue& value, const optional<const BinStarts>& binStarts,
+                         HistogramValue& histValue) {
+    if (binStarts == nullopt) {
+        ALOGE("Missing bin configuration!");
+        return;
+    }
+    histValue.addValue(static_cast<float>(toDouble(value)), *binStarts);
+}
+
 }  // anonymous namespace
 
 bool NumericValueMetricProducer::aggregateFields(const int64_t eventTimeNs,
@@ -420,13 +459,22 @@ bool NumericValueMetricProducer::aggregateFields(const int64_t eventTimeNs,
         Interval& interval = intervals[i];
         interval.aggIndex = i;
         NumericValue& base = bases[i];
-        NumericValue value = getDoubleOrLong(event, matcher);
+        NumericValue value = getAggregationInputValue(event, matcher);
         if (!value.hasValue()) {
             VLOG("Failed to get value %zu from event %s", i, event.ToString().c_str());
             StatsdStats::getInstance().noteBadValueType(mMetricId);
             return seenNewData;
         }
-        seenNewData = true;
+
+        if (value.is<HistogramValue>() && !value.getValue<HistogramValue>().isValid()) {
+            ALOGE("Invalid histogram at %zu from event %s", i, event.ToString().c_str());
+            StatsdStats::getInstance().noteBadValueType(mMetricId);
+            if (mUseDiff) {
+                base.reset();
+            }
+            continue;
+        }
+
         if (mUseDiff) {
             if (!base.hasValue()) {
                 if (mHasGlobalBase && mUseZeroDefaultBase) {
@@ -436,6 +484,8 @@ bool NumericValueMetricProducer::aggregateFields(const int64_t eventTimeNs,
                         base = ZERO_LONG;
                     } else if (value.is<double>()) {
                         base = ZERO_DOUBLE;
+                    } else if (value.is<HistogramValue>()) {
+                        base = HistogramValue();
                     }
                 } else {
                     // no base. just update base and return.
@@ -444,52 +494,73 @@ bool NumericValueMetricProducer::aggregateFields(const int64_t eventTimeNs,
                     // If we're missing a base, do not use anomaly detection on incomplete data
                     useAnomalyDetection = false;
 
+                    seenNewData = true;
                     // Continue (instead of return) here in order to set base value for other bases
                     continue;
                 }
             }
             NumericValue diff{};
-            switch (mValueDirection) {
-                case ValueMetric::INCREASING:
-                    if (value >= base) {
+            if (value.is<HistogramValue>()) {
+                diff = value - base;
+                seenNewData = true;
+                base = value;
+                if (diff == HistogramValue::ERROR_BINS_MISMATCH) {
+                    ALOGE("Value %zu from event %s does not have enough bins", i,
+                          event.ToString().c_str());
+                    StatsdStats::getInstance().noteBadValueType(mMetricId);
+                    continue;
+                }
+                if (diff == HistogramValue::ERROR_BIN_COUNT_TOO_HIGH) {
+                    ALOGE("Value %zu from event %s has decreasing bin count", i,
+                          event.ToString().c_str());
+                    StatsdStats::getInstance().noteBadValueType(mMetricId);
+                    continue;
+                }
+            } else {
+                seenNewData = true;
+                switch (mValueDirection) {
+                    case ValueMetric::INCREASING:
+                        if (value >= base) {
+                            diff = value - base;
+                        } else if (mUseAbsoluteValueOnReset) {
+                            diff = value;
+                        } else {
+                            VLOG("Unexpected decreasing value");
+                            StatsdStats::getInstance().notePullDataError(mPullAtomId);
+                            base = value;
+                            // If we've got bad data, do not use anomaly detection
+                            useAnomalyDetection = false;
+                            continue;
+                        }
+                        break;
+                    case ValueMetric::DECREASING:
+                        if (base >= value) {
+                            diff = base - value;
+                        } else if (mUseAbsoluteValueOnReset) {
+                            diff = value;
+                        } else {
+                            VLOG("Unexpected increasing value");
+                            StatsdStats::getInstance().notePullDataError(mPullAtomId);
+                            base = value;
+                            // If we've got bad data, do not use anomaly detection
+                            useAnomalyDetection = false;
+                            continue;
+                        }
+                        break;
+                    case ValueMetric::ANY:
                         diff = value - base;
-                    } else if (mUseAbsoluteValueOnReset) {
-                        diff = value;
-                    } else {
-                        VLOG("Unexpected decreasing value");
-                        StatsdStats::getInstance().notePullDataError(mPullAtomId);
-                        base = value;
-                        // If we've got bad data, do not use anomaly detection
-                        useAnomalyDetection = false;
-                        continue;
-                    }
-                    break;
-                case ValueMetric::DECREASING:
-                    if (base >= value) {
-                        diff = base - value;
-                    } else if (mUseAbsoluteValueOnReset) {
-                        diff = value;
-                    } else {
-                        VLOG("Unexpected increasing value");
-                        StatsdStats::getInstance().notePullDataError(mPullAtomId);
-                        base = value;
-                        // If we've got bad data, do not use anomaly detection
-                        useAnomalyDetection = false;
-                        continue;
-                    }
-                    break;
-                case ValueMetric::ANY:
-                    diff = value - base;
-                    break;
-                default:
-                    break;
+                        break;
+                    default:
+                        break;
+                }
+                base = value;
             }
-            base = value;
             value = diff;
         }
 
+        const ValueMetric::AggregationType aggType = getAggregationTypeLocked(i);
         if (interval.hasValue()) {
-            switch (getAggregationTypeLocked(i)) {
+            switch (aggType) {
                 case ValueMetric::SUM:
                     // for AVG, we add up and take average when flushing the bucket
                 case ValueMetric::AVG:
@@ -501,12 +572,35 @@ bool NumericValueMetricProducer::aggregateFields(const int64_t eventTimeNs,
                 case ValueMetric::MAX:
                     interval.aggregate = max(value, interval.aggregate);
                     break;
+                case ValueMetric::HISTOGRAM:
+                    if (value.is<HistogramValue>()) {
+                        // client-aggregated histogram: add the corresponding bin counts.
+                        NumericValue sum = interval.aggregate + value;
+                        if (sum == HistogramValue::ERROR_BINS_MISMATCH) {
+                            ALOGE("Value %zu from event %s has too many bins", i,
+                                  event.ToString().c_str());
+                            StatsdStats::getInstance().noteBadValueType(mMetricId);
+                            continue;
+                        }
+                        interval.aggregate = sum;
+                    } else {
+                        // statsd-aggregated histogram: add the raw value to histogram.
+                        addValueToHistogram(value, getBinStarts(i),
+                                            interval.aggregate.getValue<HistogramValue>());
+                    }
+                    break;
                 default:
                     break;
             }
+        } else if (aggType == ValueMetric::HISTOGRAM && !value.is<HistogramValue>()) {
+            // statsd-aggregated histogram: add raw value to histogram.
+            interval.aggregate = HistogramValue();
+            addValueToHistogram(value, getBinStarts(i),
+                                interval.aggregate.getValue<HistogramValue>());
         } else {
             interval.aggregate = value;
         }
+        seenNewData = true;
         interval.sampleSize += 1;
     }
 
@@ -639,6 +733,11 @@ void NumericValueMetricProducer::appendToFullBucket(const bool isFullBucketReach
     }
 }
 
+const optional<const BinStarts>& NumericValueMetricProducer::getBinStarts(
+        int valueFieldIndex) const {
+    return mBinStartsList.size() == 1 ? mBinStartsList[0] : mBinStartsList[valueFieldIndex];
+}
+
 // Estimate for the size of NumericValues.
 size_t NumericValueMetricProducer::getAggregatedValueSize(const NumericValue& value) const {
     size_t valueSize = 0;
@@ -671,12 +770,6 @@ size_t NumericValueMetricProducer::byteSizeLocked() const {
     return totalSize;
 }
 
-namespace {
-double toDouble(const NumericValue& value) {
-    return value.is<int64_t>() ? value.getValue<int64_t>() : value.getValueOrDefault<double>(0);
-}
-}  // anonymous namespace
-
 bool NumericValueMetricProducer::valuePassesThreshold(const Interval& interval) const {
     if (mUploadThreshold == nullopt) {
         return true;
@@ -704,6 +797,9 @@ bool NumericValueMetricProducer::valuePassesThreshold(const Interval& interval) 
 }
 
 NumericValue NumericValueMetricProducer::getFinalValue(const Interval& interval) const {
+    if (interval.aggregate.is<HistogramValue>()) {
+        return interval.aggregate.getValue<HistogramValue>().getCompactedHistogramValue();
+    }
     if (getAggregationTypeLocked(interval.aggIndex) != ValueMetric::AVG) {
         return interval.aggregate;
     } else {
@@ -720,6 +816,20 @@ NumericValueMetricProducer::DumpProtoFields NumericValueMetricProducer::getDumpP
             FIELD_ID_CONDITION_TRUE_NS,
             FIELD_ID_CONDITION_CORRECTION_NS};
 }
+
+MetricProducer::DataCorruptionSeverity NumericValueMetricProducer::determineCorruptionSeverity(
+        int32_t atomId, DataCorruptedReason /*reason*/, LostAtomType atomType) const {
+    switch (atomType) {
+        case LostAtomType::kWhat:
+            return mUseDiff ? DataCorruptionSeverity::kUnrecoverable
+                            : DataCorruptionSeverity::kResetOnDump;
+        case LostAtomType::kCondition:
+        case LostAtomType::kState:
+            return DataCorruptionSeverity::kUnrecoverable;
+    };
+    return DataCorruptionSeverity::kNone;
+};
+
 }  // namespace statsd
 }  // namespace os
 }  // namespace android

@@ -30,6 +30,7 @@ import com.android.os.StatsLog;
 import com.android.os.StatsLog.ConfigMetricsReport;
 import com.android.os.StatsLog.ConfigMetricsReportList;
 import com.android.os.StatsLog.StatsLogReport;
+import com.android.os.framework.FrameworkExtensionAtoms;
 import com.android.os.telephony.qns.QnsExtensionAtoms;
 import com.android.statsd.shelltools.Utils;
 
@@ -102,6 +103,8 @@ public class TestDrive {
             "com.android.ondevicepersonalization.services",
             "com.google.android.ondevicepersonalization.services",
             "AID_UPROBESTATS",
+            "com.google.android.hardware.biometrics.face",
+            "com.google.android.photopicker",
     };
     private static final String[] DEFAULT_PULL_SOURCES = {
             "AID_KEYSTORE", "AID_RADIO", "AID_SYSTEM",
@@ -576,6 +579,8 @@ public class TestDrive {
             allowedSources.addAll(mAdditionalAllowedPackages);
             return StatsdConfig.newBuilder()
                     .addAllAllowedLogSource(allowedSources)
+                    .addWhitelistedAtomIds(
+                            FrameworkExtensionAtoms.STYLUS_PREDICTION_METRICS_REPORTED_FIELD_NUMBER)
                     .addAllDefaultPullPackages(Arrays.asList(DEFAULT_PULL_SOURCES))
                     .addPullAtomPackages(
                             PullAtomPackages.newBuilder()

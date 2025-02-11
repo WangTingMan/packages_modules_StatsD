@@ -51,17 +51,19 @@ public:
         return METRIC_TYPE_EVENT;
     }
 
+    void onStateChanged(const int64_t eventTimeNs, const int32_t atomId,
+                        const HashableDimensionKey& primaryKey, const FieldValue& oldState,
+                        const FieldValue& newState) override;
+
 private:
     void onMatchedLogEventInternalLocked(
             const size_t matcherIndex, const MetricDimensionKey& eventKey,
             const ConditionKey& conditionKey, bool condition, const LogEvent& event,
             const std::map<int, HashableDimensionKey>& statePrimaryKeys) override;
 
-    void onDumpReportLocked(const int64_t dumpTimeNs,
-                            const bool include_current_partial_bucket,
-                            const bool erase_data,
-                            const DumpLatency dumpLatency,
-                            std::set<string> *str_set,
+    void onDumpReportLocked(const int64_t dumpTimeNs, const bool include_current_partial_bucket,
+                            const bool erase_data, const DumpLatency dumpLatency,
+                            std::set<string>* str_set, std::set<int32_t>& usedUids,
                             android::util::ProtoOutputStream* protoOutput) override;
     void clearPastBucketsLocked(const int64_t dumpTimeNs) override;
 
@@ -94,11 +96,19 @@ private:
 
     void dumpStatesLocked(int out, bool verbose) const override{};
 
-    DataCorruptionSeverity determineCorruptionSeverity(DataCorruptedReason reason,
+    DataCorruptionSeverity determineCorruptionSeverity(int32_t atomId, DataCorruptedReason reason,
                                                        LostAtomType atomType) const override;
 
     // Maps the field/value pairs of an atom to a list of timestamps used to deduplicate atoms.
+    // Used when event metric DOES NOT use slice_by_state. Empty otherwise.
     std::unordered_map<AtomDimensionKey, std::vector<int64_t>> mAggregatedAtoms;
+
+    // Maps the field/value pairs of an atom to the field/value pairs of a state to a list of
+    // timestamps used to deduplicate atoms and states.
+    // Used when event metric DOES use slice_by_state. Empty otherwise.
+    std::unordered_map<AtomDimensionKey,
+                       std::unordered_map<HashableDimensionKey, std::vector<int64_t>>>
+            mAggAtomsAndStates;
 
     const int mSamplingPercentage;
 };

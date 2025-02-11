@@ -18,13 +18,16 @@
 #include "parsing_test_utils.h"
 
 #include <optional>
+#include <vector>
 
 #include "src/external/StatsPullerManager.h"
 #include "src/guardrail/StatsdStats.h"
 #include "src/metrics/parsing_utils/metrics_manager_util.h"
 #include "src/packages/UidMap.h"
 #include "src/state/StateManager.h"
+#include "src/stats_util.h"
 #include "src/statsd_config.pb.h"
+#include "tests/statsd_test_util.h"
 
 namespace android {
 namespace os {
@@ -69,6 +72,35 @@ std::optional<InvalidConfigReason> InitConfigTest::initConfig(const StatsdConfig
 void InitConfigTest::SetUp() {
     clearData();
     StateManager::getInstance().clear();
+}
+
+StatsdConfig createHistogramStatsdConfig() {
+    StatsdConfig config;
+    *config.add_atom_matcher() = CreateSimpleAtomMatcher("matcher", /* atomId */ 1);
+    *config.add_value_metric() =
+            createValueMetric("ValueMetric", config.atom_matcher(0), /* valueField */ 1,
+                              /* condition */ nullopt, /* states */ {});
+    config.mutable_value_metric(0)->set_aggregation_type(ValueMetric::HISTOGRAM);
+
+    return config;
+}
+
+StatsdConfig createExplicitHistogramStatsdConfig(BinStarts bins) {
+    StatsdConfig config = createHistogramStatsdConfig();
+    *config.mutable_value_metric(0)->add_histogram_bin_configs() =
+            createExplicitBinConfig(/* id */ 1, bins);
+
+    return config;
+}
+
+StatsdConfig createGeneratedHistogramStatsdConfig(
+        float binsMin, float binsMax, int binsCount,
+        HistogramBinConfig::GeneratedBins::Strategy binStrategy) {
+    StatsdConfig config = createHistogramStatsdConfig();
+    *config.mutable_value_metric(0)->add_histogram_bin_configs() =
+            createGeneratedBinConfig(/* id */ 1, binsMin, binsMax, binsCount, binStrategy);
+
+    return config;
 }
 
 }  // namespace statsd

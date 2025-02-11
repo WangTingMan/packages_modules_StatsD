@@ -19,13 +19,22 @@
 
 #include "histogram_parsing_utils.h"
 
+#include <google/protobuf/repeated_field.h>
+
 #include <algorithm>
+#include <cmath>
+#include <optional>
 #include <variant>
 #include <vector>
 
 #include "guardrail/StatsdStats.h"
 #include "src/statsd_config.pb.h"
+#include "stats_util.h"
 
+using google::protobuf::RepeatedPtrField;
+using std::nullopt;
+using std::optional;
+using std::pow;
 using std::variant;
 using std::vector;
 
@@ -35,11 +44,64 @@ namespace statsd {
 namespace {
 constexpr int MIN_HISTOGRAM_BIN_COUNT = 2;
 constexpr int MAX_HISTOGRAM_BIN_COUNT = 100;
+
+BinStarts generateLinearBins(float min, float max, int count) {
+    const float binWidth = (max - min) / count;
+
+    // 2 extra bins for underflow and overflow.
+    BinStarts bins(count + 2);
+    bins[0] = UNDERFLOW_BIN_START;
+    bins[1] = min;
+    bins.back() = max;
+    float curBin = min;
+
+    // Generate values starting from 3rd element to (n-1)th element.
+    std::generate(bins.begin() + 2, bins.end() - 1,
+                  [&curBin, binWidth]() { return curBin += binWidth; });
+    return bins;
+}
+
+BinStarts generateExponentialBins(float min, float max, int count) {
+    BinStarts bins(count + 2);
+    bins[0] = UNDERFLOW_BIN_START;
+    bins[1] = min;
+    bins.back() = max;
+
+    // Determine the scale factor f, such that max = min * f^count.
+    // So, f = (max / min)^(1 / count) ie. f is the count'th-root of max / min.
+    const float factor = pow(max / min, 1.0 / count);
+
+    // Generate values starting from 3rd element to (n-1)th element.
+    float curBin = bins[1];
+    std::generate(bins.begin() + 2, bins.end() - 1,
+                  [&curBin, factor]() { return curBin *= factor; });
+
+    return bins;
+}
+
+BinStarts createExplicitBins(const BinStarts& configBins) {
+    BinStarts bins(configBins.size() + 1);
+    bins[0] = UNDERFLOW_BIN_START;
+    std::copy(configBins.begin(), configBins.end(), bins.begin() + 1);
+    return bins;
+}
 }  // anonymous namespace
 
-ParseHistogramBinConfigsResult parseHistogramBinConfigs(const ValueMetric& metric) {
-    vector<vector<float>> binStarts;
-    for (const HistogramBinConfig& binConfig : metric.histogram_bin_configs()) {
+ParseHistogramBinConfigsResult parseHistogramBinConfigs(
+        const ValueMetric& metric, const vector<ValueMetric::AggregationType>& aggregationTypes) {
+    if (metric.histogram_bin_configs_size() == 0) {
+        return {};
+    }
+    vector<optional<const BinStarts>> binStartsList;
+    binStartsList.reserve(aggregationTypes.size());
+    RepeatedPtrField<HistogramBinConfig>::const_iterator binConfigIt =
+            metric.histogram_bin_configs().cbegin();
+    for (const ValueMetric::AggregationType aggType : aggregationTypes) {
+        if (aggType != ValueMetric::HISTOGRAM) {
+            binStartsList.push_back(nullopt);
+            continue;
+        }
+        const HistogramBinConfig& binConfig = *binConfigIt;
         if (!binConfig.has_id()) {
             ALOGE("cannot find id in HistogramBinConfig");
             return InvalidConfigReason(
@@ -72,7 +134,32 @@ ParseHistogramBinConfigsResult parseHistogramBinConfigs(const ValueMetric& metri
                             metric.id());
                 }
 
-                // TODO: add generated bins to binStart.
+                switch (genBins.strategy()) {
+                    case HistogramBinConfig::GeneratedBins::LINEAR: {
+                        binStartsList.push_back(
+                                generateLinearBins(genBins.min(), genBins.max(), genBins.count()));
+                        break;
+                    }
+                    case HistogramBinConfig::GeneratedBins::EXPONENTIAL: {
+                        // The starting point of exponential bins has to be greater than 0.
+                        if (genBins.min() <= 0) {
+                            ALOGE("Min should be greater than 0 for exponential bins");
+                            return InvalidConfigReason(
+                                    INVALID_CONFIG_REASON_VALUE_METRIC_HIST_GENERATED_BINS_INVALID_MIN_MAX,
+                                    metric.id());
+                        }
+                        binStartsList.push_back(generateExponentialBins(
+                                genBins.min(), genBins.max(), genBins.count()));
+                        break;
+                    }
+                    default: {
+                        ALOGE("Unknown GeneratedBins strategy");
+                        return InvalidConfigReason(
+                                INVALID_CONFIG_REASON_VALUE_METRIC_HIST_MISSING_GENERATED_BINS_ARGS,
+                                metric.id());
+                    }
+                }
+
                 break;
             }
             case HistogramBinConfig::kExplicitBins: {
@@ -100,7 +187,13 @@ ParseHistogramBinConfigsResult parseHistogramBinConfigs(const ValueMetric& metri
                             metric.id());
                 }
 
-                // TODO: add explicit bins to binStart.
+                binStartsList.push_back(
+                        createExplicitBins({explicitBins.bin().begin(), explicitBins.bin().end()}));
+
+                break;
+            }
+            case HistogramBinConfig::kClientAggregatedBins: {
+                binStartsList.push_back(nullopt);
                 break;
             }
             default: {
@@ -111,8 +204,9 @@ ParseHistogramBinConfigsResult parseHistogramBinConfigs(const ValueMetric& metri
                 break;
             }
         }
+        binConfigIt++;
     }
-    return binStarts;
+    return binStartsList;
 }
 
 }  // namespace statsd

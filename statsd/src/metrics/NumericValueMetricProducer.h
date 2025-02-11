@@ -22,6 +22,7 @@
 
 #include "ValueMetricProducer.h"
 #include "metrics/NumericValue.h"
+#include "src/stats_util.h"
 
 namespace android {
 namespace os {
@@ -150,6 +151,9 @@ private:
         return mAggregationTypes.size() == 1 ? mAggregationTypes[0] : mAggregationTypes[index];
     }
 
+    // Should only be called if there is at least one HISTOGRAM in mAggregationTypes
+    const std::optional<const BinStarts>& getBinStarts(int valueFieldIndex) const;
+
     size_t getAggregatedValueSize(const NumericValue& value) const override;
 
     bool hasAvgAggregationType(const vector<ValueMetric::AggregationType> aggregationTypes) const {
@@ -160,6 +164,9 @@ private:
         }
         return false;
     }
+
+    DataCorruptionSeverity determineCorruptionSeverity(int32_t atomId, DataCorruptedReason reason,
+                                                       LostAtomType atomType) const override;
 
     const bool mUseAbsoluteValueOnReset;
 
@@ -192,6 +199,8 @@ private:
 
     // For anomaly detection.
     std::unordered_map<MetricDimensionKey, int64_t> mCurrentFullBucket;
+
+    const std::vector<std::optional<const BinStarts>> mBinStartsList;
 
     FRIEND_TEST(NumericValueMetricProducerTest, TestAnomalyDetection);
     FRIEND_TEST(NumericValueMetricProducerTest, TestBaseSetOnConditionChange);

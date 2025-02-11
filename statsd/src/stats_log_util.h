@@ -32,13 +32,17 @@ namespace os {
 namespace statsd {
 
 void writeFieldValueTreeToStream(int tagId, const std::vector<FieldValue>& values,
+                                 const std::vector<Matcher>& uidFields, std::set<int32_t>& usedUids,
                                  ProtoOutputStream* protoOutput);
-void writeDimensionToProto(const HashableDimensionKey& dimension, std::set<string> *str_set,
-                           ProtoOutputStream* protoOutput);
+
+void writeDimensionToProto(const HashableDimensionKey& dimension,
+                           const std::vector<Matcher>& uidFields, std::set<string>* str_set,
+                           std::set<int32_t>& usedUids, ProtoOutputStream* protoOutput);
 
 void writeDimensionLeafNodesToProto(const HashableDimensionKey& dimension,
                                     const int dimensionLeafFieldId,
-                                    std::set<string> *str_set,
+                                    const std::vector<Matcher>& uidFields,
+                                    std::set<string>* str_set, std::set<int32_t>& usedUids,
                                     ProtoOutputStream* protoOutput);
 
 void writeDimensionPathToProto(const std::vector<Matcher>& fieldMatchers,

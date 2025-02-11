@@ -240,9 +240,15 @@ message EventMetric {
 
   optional int64 condition = 3;
 
+  repeated int64 slice_by_state = 7;
+
   repeated MetricConditionLink links = 4;
 
+  repeated MetricStateLink state_link = 8;
+
   optional int32 sampling_percentage = 5 [default = 100];
+
+  optional FieldMatcher uid_fields = 6;
 
   reserved 100;
   reserved 101;
@@ -274,6 +280,8 @@ message CountMetric {
   optional DimensionalSamplingInfo dimensional_sampling_info = 12;
 
   optional int32 max_dimensions_per_bucket = 13;
+
+  optional FieldMatcher uid_fields = 14;
 
   reserved 100;
   reserved 101;
@@ -312,6 +320,8 @@ message DurationMetric {
   optional DimensionalSamplingInfo dimensional_sampling_info = 13;
 
   optional int32 max_dimensions_per_bucket = 14;
+
+  optional FieldMatcher uid_fields = 15;
 
   reserved 100;
   reserved 101;
@@ -360,8 +370,15 @@ message GaugeMetric {
 
   optional int32 pull_probability = 18 [default = 100];
 
+  optional FieldMatcher uid_fields = 19;
+
   reserved 100;
   reserved 101;
+}
+
+// Empty proto message to indicate that histogram bins are populated in the client process.
+// No additional configuration parameters are needed in this message.
+message ClientAggregatedBins {
 }
 
 message HistogramBinConfig {
@@ -386,6 +403,7 @@ message HistogramBinConfig {
   oneof binning_strategy {
     GeneratedBins generated_bins = 2;
     ExplicitBins explicit_bins = 3;
+    ClientAggregatedBins client_aggregated_bins = 4;
   }
 }
 
@@ -458,6 +476,8 @@ message ValueMetric {
 
   optional int32 max_dimensions_per_bucket = 24;
 
+  optional FieldMatcher uid_fields = 27;
+
   reserved 100;
   reserved 101;
 }
@@ -488,6 +508,8 @@ message KllMetric {
   optional DimensionalSamplingInfo dimensional_sampling_info = 12;
 
   optional int32 max_dimensions_per_bucket = 13;
+
+  optional FieldMatcher uid_fields = 14;
 
   reserved 100;
   reserved 101;
@@ -676,6 +698,8 @@ message StatsdConfig {
   message StatsdConfigOptions {
     optional bool use_v2_soft_memory_limit = 1;
     optional bool omit_system_uids_in_uidmap = 2;
+    optional bool omit_unused_uids_in_uidmap = 3;
+    repeated string uidmap_package_allowlist = 4;
   }
 
   optional StatsdConfigOptions statsd_config_options = 30;

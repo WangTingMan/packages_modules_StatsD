@@ -102,6 +102,15 @@ static void assertPastBucketValuesSingleKey(
     }
 }
 
+StatsLogReport onDumpReport(sp<NumericValueMetricProducer>& producer, int64_t dumpTimeNs,
+                            bool includeCurrentBucket, DumpLatency dumpLatency) {
+    ProtoOutputStream output;
+    set<int32_t> usedUids;
+    producer->onDumpReport(dumpTimeNs, includeCurrentBucket, true /*erase data*/, dumpLatency,
+                           nullptr, usedUids, &output);
+    return outputStreamToProto(&output);
+}
+
 }  // anonymous namespace
 
 class NumericValueMetricProducerTestHelper {
@@ -880,11 +889,8 @@ TEST(NumericValueMetricProducerTest, TestPushedEventsWithoutCondition) {
     EXPECT_EQ(30, curInterval.aggregate.getValue<int64_t>());
 
     // Check dump report.
-    ProtoOutputStream output;
-    valueProducer->onDumpReport(bucket2StartTimeNs + 10000, false /* include recent buckets */,
-                                true, FAST /* dumpLatency */, nullptr, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, bucket2StartTimeNs + 10000,
+                                         false /* include recent buckets */, FAST);
     backfillDimensionPath(&report);
     backfillStartEndTimestamp(&report);
     EXPECT_TRUE(report.has_value_metrics());
@@ -953,11 +959,8 @@ TEST(NumericValueMetricProducerTest, TestPushedEventsWithCondition) {
     EXPECT_EQ(50, curInterval.aggregate.getValue<int64_t>());
 
     // Check dump report.
-    ProtoOutputStream output;
-    valueProducer->onDumpReport(bucket2StartTimeNs + 10000, false /* include recent buckets */,
-                                true, FAST /* dumpLatency */, nullptr, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, bucket2StartTimeNs + 10000,
+                                         false /* include recent buckets */, FAST);
     backfillDimensionPath(&report);
     backfillStartEndTimestamp(&report);
     EXPECT_TRUE(report.has_value_metrics());
@@ -2192,12 +2195,8 @@ TEST(NumericValueMetricProducerTest_BucketDrop, TestInvalidBucketWhenOneConditio
     EXPECT_EQ(true, valueProducer->mHasGlobalBase);
 
     // Check dump report.
-    ProtoOutputStream output;
-    std::set<string> strSet;
-    valueProducer->onDumpReport(bucket2StartTimeNs + 10, false /* include partial bucket */, true,
-                                FAST /* dumpLatency */, &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, bucket2StartTimeNs + 10,
+                                         false /* include recent buckets */, FAST);
     EXPECT_TRUE(report.has_value_metrics());
     ASSERT_EQ(0, report.value_metrics().data_size());
     ASSERT_EQ(1, report.value_metrics().skipped_size());
@@ -2254,13 +2253,9 @@ TEST(NumericValueMetricProducerTest_BucketDrop, TestInvalidBucketWhenGuardRailHi
     ASSERT_EQ(1UL, valueProducer->mSkippedBuckets.size());
 
     // Check dump report.
-    ProtoOutputStream output;
-    std::set<string> strSet;
-    valueProducer->onDumpReport(bucket2StartTimeNs + 10000, false /* include recent buckets */,
-                                true, FAST /* dumpLatency */, &strSet, &output);
+    StatsLogReport report = onDumpReport(valueProducer, bucket2StartTimeNs + 10000,
+                                         false /* include recent buckets */, FAST);
     ASSERT_EQ(true, StatsdStats::getInstance().hasHitDimensionGuardrail(metricId));
-
-    StatsLogReport report = outputStreamToProto(&output);
     EXPECT_TRUE(report.dimension_guardrail_hit());
     EXPECT_TRUE(report.has_value_metrics());
     ASSERT_EQ(0, report.value_metrics().data_size());
@@ -2332,12 +2327,8 @@ TEST(NumericValueMetricProducerTest_BucketDrop, TestInvalidBucketWhenInitialPull
     EXPECT_EQ(true, valueProducer->mHasGlobalBase);
 
     // Check dump report.
-    ProtoOutputStream output;
-    std::set<string> strSet;
-    valueProducer->onDumpReport(bucket2StartTimeNs + 10000, false /* include recent buckets */,
-                                true, FAST /* dumpLatency */, &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, bucket2StartTimeNs + 10000,
+                                         false /* include recent buckets */, FAST);
     EXPECT_TRUE(report.has_value_metrics());
     ASSERT_EQ(0, report.value_metrics().data_size());
     ASSERT_EQ(1, report.value_metrics().skipped_size());
@@ -2408,12 +2399,8 @@ TEST(NumericValueMetricProducerTest_BucketDrop, TestInvalidBucketWhenLastPullFai
     EXPECT_EQ(false, valueProducer->mHasGlobalBase);
 
     // Check dump report.
-    ProtoOutputStream output;
-    std::set<string> strSet;
-    valueProducer->onDumpReport(bucket2StartTimeNs + 10000, false /* include recent buckets */,
-                                true, FAST /* dumpLatency */, &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, bucket2StartTimeNs + 10000,
+                                         false /* include recent buckets */, FAST);
     EXPECT_TRUE(report.has_value_metrics());
     ASSERT_EQ(0, report.value_metrics().data_size());
     ASSERT_EQ(1, report.value_metrics().skipped_size());
@@ -2995,12 +2982,8 @@ TEST(NumericValueMetricProducerTest, TestFastDumpWithoutCurrentBucket) {
     allData.push_back(CreateThreeValueLogEvent(tagId, bucket2StartTimeNs + 1, tagId, 2, 2));
     valueProducer->onDataPulled(allData, PullResult::PULL_RESULT_SUCCESS, bucket2StartTimeNs);
 
-    ProtoOutputStream output;
-    std::set<string> strSet;
-    valueProducer->onDumpReport(bucket4StartTimeNs, false /* include recent buckets */, true, FAST,
-                                &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, bucket4StartTimeNs,
+                                         false /* include recent buckets */, FAST);
     // Previous bucket is part of the report, and the current bucket is not skipped.
     ASSERT_EQ(1, report.value_metrics().data_size());
     EXPECT_EQ(0, report.value_metrics().data(0).bucket_info(0).bucket_num());
@@ -3036,12 +3019,8 @@ TEST(NumericValueMetricProducerTest, TestPullNeededNoTimeConstraints) {
             NumericValueMetricProducerTestHelper::createValueProducerNoConditions(pullerManager,
                                                                                   metric);
 
-    ProtoOutputStream output;
-    std::set<string> strSet;
-    valueProducer->onDumpReport(bucketStartTimeNs + 10, true /* include recent buckets */, true,
-                                NO_TIME_CONSTRAINTS, &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, bucketStartTimeNs + 10,
+                                         true /* include recent buckets */, NO_TIME_CONSTRAINTS);
     ASSERT_EQ(1, report.value_metrics().data_size());
     ASSERT_EQ(1, report.value_metrics().data(0).bucket_info_size());
     EXPECT_EQ(2, report.value_metrics().data(0).bucket_info(0).values(0).value_long());
@@ -3236,14 +3215,11 @@ TEST(NumericValueMetricProducerTest_BucketDrop, TestInvalidBucketWhenDumpReportR
     valueProducer->onConditionChanged(true, bucketStartTimeNs + 20);
 
     // Check dump report.
-    ProtoOutputStream output;
-    std::set<string> strSet;
-    valueProducer->onDumpReport(bucketStartTimeNs + 40, true /* include recent buckets */, true,
-                                FAST /* dumpLatency */, &strSet, &output);
+    StatsLogReport report = onDumpReport(valueProducer, bucketStartTimeNs + 40,
+                                         true /* include recent buckets */, FAST);
     ASSERT_EQ(0UL, valueProducer->mCurrentSlicedBucket.size());
     ASSERT_EQ(1UL, valueProducer->mDimInfos.size());
 
-    StatsLogReport report = outputStreamToProto(&output);
     EXPECT_TRUE(report.has_value_metrics());
     ASSERT_EQ(0, report.value_metrics().data_size());
     ASSERT_EQ(1, report.value_metrics().skipped_size());
@@ -3292,12 +3268,8 @@ TEST(NumericValueMetricProducerTest_BucketDrop, TestInvalidBucketWhenConditionEv
     valueProducer->onConditionChanged(false, bucket2StartTimeNs - 100);
 
     // Check dump report.
-    ProtoOutputStream output;
-    std::set<string> strSet;
-    valueProducer->onDumpReport(bucket2StartTimeNs + 100, true /* include recent buckets */, true,
-                                NO_TIME_CONSTRAINTS /* dumpLatency */, &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, bucket2StartTimeNs + 100,
+                                         true /* include recent buckets */, NO_TIME_CONSTRAINTS);
     EXPECT_TRUE(report.has_value_metrics());
     ASSERT_EQ(1, report.value_metrics().data_size());
     ASSERT_EQ(1, report.value_metrics().skipped_size());
@@ -3358,12 +3330,9 @@ TEST(NumericValueMetricProducerTest_BucketDrop, TestInvalidBucketWhenAccumulateE
     valueProducer->accumulateEvents(allData, bucket2StartTimeNs - 100, bucket2StartTimeNs - 100);
 
     // Check dump report.
-    ProtoOutputStream output;
-    std::set<string> strSet;
-    valueProducer->onDumpReport(bucket2StartTimeNs + 100, true /* include recent buckets */, true,
-                                NO_TIME_CONSTRAINTS /* dumpLatency */, &strSet, &output);
+    StatsLogReport report = onDumpReport(valueProducer, bucket2StartTimeNs + 100,
+                                         true /* include recent buckets */, NO_TIME_CONSTRAINTS);
 
-    StatsLogReport report = outputStreamToProto(&output);
     EXPECT_TRUE(report.has_value_metrics());
     ASSERT_EQ(1, report.value_metrics().data_size());
     ASSERT_EQ(1, report.value_metrics().skipped_size());
@@ -3413,13 +3382,9 @@ TEST(NumericValueMetricProducerTest_BucketDrop, TestInvalidBucketWhenConditionUn
     valueProducer->onConditionChanged(true, bucketStartTimeNs + 50);
 
     // Check dump report.
-    ProtoOutputStream output;
-    std::set<string> strSet;
     int64_t dumpReportTimeNs = bucketStartTimeNs + 10000;
-    valueProducer->onDumpReport(dumpReportTimeNs, true /* include recent buckets */, true,
-                                NO_TIME_CONSTRAINTS /* dumpLatency */, &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, dumpReportTimeNs,
+                                         true /* include recent buckets */, NO_TIME_CONSTRAINTS);
     EXPECT_TRUE(report.has_value_metrics());
     ASSERT_EQ(0, report.value_metrics().data_size());
     ASSERT_EQ(1, report.value_metrics().skipped_size());
@@ -3463,13 +3428,9 @@ TEST(NumericValueMetricProducerTest_BucketDrop, TestInvalidBucketWhenPullFailed)
     valueProducer->onConditionChanged(true, bucketStartTimeNs + 50);
 
     // Check dump report.
-    ProtoOutputStream output;
-    std::set<string> strSet;
     int64_t dumpReportTimeNs = bucketStartTimeNs + 10000;
-    valueProducer->onDumpReport(dumpReportTimeNs, true /* include recent buckets */, true,
-                                NO_TIME_CONSTRAINTS /* dumpLatency */, &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, dumpReportTimeNs,
+                                         true /* include recent buckets */, NO_TIME_CONSTRAINTS);
     EXPECT_TRUE(report.has_value_metrics());
     ASSERT_EQ(0, report.value_metrics().data_size());
     ASSERT_EQ(1, report.value_metrics().skipped_size());
@@ -3527,12 +3488,8 @@ TEST(NumericValueMetricProducerTest_BucketDrop, TestInvalidBucketWhenMultipleBuc
     int64_t dumpTimeNs = bucket4StartTimeNs + 1000;
 
     // Check dump report.
-    ProtoOutputStream output;
-    std::set<string> strSet;
-    valueProducer->onDumpReport(dumpTimeNs, true /* include current buckets */, true,
-                                NO_TIME_CONSTRAINTS /* dumpLatency */, &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, dumpTimeNs,
+                                         true /* include recent buckets */, NO_TIME_CONSTRAINTS);
     EXPECT_TRUE(report.has_value_metrics());
     ASSERT_EQ(0, report.value_metrics().data_size());
     ASSERT_EQ(2, report.value_metrics().skipped_size());
@@ -3597,13 +3554,9 @@ TEST(NumericValueMetricProducerTest_BucketDrop, TestBucketDropWhenBucketTooSmall
     valueProducer->onConditionChanged(true, bucketStartTimeNs + 10);
 
     // Check dump report.
-    ProtoOutputStream output;
-    std::set<string> strSet;
     int64_t dumpReportTimeNs = bucketStartTimeNs + 9000000;
-    valueProducer->onDumpReport(dumpReportTimeNs, true /* include recent buckets */, true,
-                                NO_TIME_CONSTRAINTS /* dumpLatency */, &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, dumpReportTimeNs,
+                                         true /* include recent buckets */, NO_TIME_CONSTRAINTS);
     EXPECT_TRUE(report.has_value_metrics());
     ASSERT_EQ(0, report.value_metrics().data_size());
     ASSERT_EQ(1, report.value_metrics().skipped_size());
@@ -3632,13 +3585,9 @@ TEST(NumericValueMetricProducerTest_BucketDrop, TestBucketDropWhenDataUnavailabl
                     pullerManager, metric, ConditionState::kFalse);
 
     // Check dump report.
-    ProtoOutputStream output;
-    std::set<string> strSet;
     int64_t dumpReportTimeNs = bucketStartTimeNs + 10000000000;  // 10 seconds
-    valueProducer->onDumpReport(dumpReportTimeNs, true /* include current bucket */, true,
-                                NO_TIME_CONSTRAINTS /* dumpLatency */, &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, dumpReportTimeNs,
+                                         true /* include recent buckets */, NO_TIME_CONSTRAINTS);
     EXPECT_TRUE(report.has_value_metrics());
     ASSERT_EQ(0, report.value_metrics().data_size());
     ASSERT_EQ(1, report.value_metrics().skipped_size());
@@ -3700,13 +3649,9 @@ TEST(NumericValueMetricProducerTest_BucketDrop, TestConditionUnknownMultipleBuck
     valueProducer->onConditionChanged(true, conditionChangeTimeNs);
 
     // Check dump report.
-    ProtoOutputStream output;
-    std::set<string> strSet;
     int64_t dumpReportTimeNs = bucket2StartTimeNs + 15 * NS_PER_SEC;  // 15 seconds
-    valueProducer->onDumpReport(dumpReportTimeNs, true /* include current bucket */, true,
-                                NO_TIME_CONSTRAINTS /* dumpLatency */, &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, dumpReportTimeNs,
+                                         true /* include recent buckets */, NO_TIME_CONSTRAINTS);
     EXPECT_TRUE(report.has_value_metrics());
     ASSERT_EQ(0, report.value_metrics().data_size());
     ASSERT_EQ(3, report.value_metrics().skipped_size());
@@ -3782,13 +3727,9 @@ TEST(NumericValueMetricProducerTest_BucketDrop,
     valueProducer->notifyAppUpgrade(appUpdateTimeNs);
 
     // Check dump report.
-    ProtoOutputStream output;
-    std::set<string> strSet;
     int64_t dumpReportTimeNs = bucket2StartTimeNs + 10000000000;  // 10 seconds
-    valueProducer->onDumpReport(dumpReportTimeNs, false /* include current buckets */, true,
-                                NO_TIME_CONSTRAINTS /* dumpLatency */, &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, dumpReportTimeNs,
+                                         false /* include recent buckets */, NO_TIME_CONSTRAINTS);
     EXPECT_TRUE(report.has_value_metrics());
     ASSERT_EQ(1, report.value_metrics().data_size());
     ASSERT_EQ(1, report.value_metrics().skipped_size());
@@ -3833,13 +3774,9 @@ TEST(NumericValueMetricProducerTest_BucketDrop, TestMultipleBucketDropEvents) {
     valueProducer->onConditionChanged(true, bucketStartTimeNs + 10);
 
     // Check dump report.
-    ProtoOutputStream output;
-    std::set<string> strSet;
     int64_t dumpReportTimeNs = bucketStartTimeNs + 1000;
-    valueProducer->onDumpReport(dumpReportTimeNs, true /* include recent buckets */, true,
-                                FAST /* dumpLatency */, &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report =
+            onDumpReport(valueProducer, dumpReportTimeNs, true /* include recent buckets */, FAST);
     EXPECT_TRUE(report.has_value_metrics());
     ASSERT_EQ(0, report.value_metrics().data_size());
     ASSERT_EQ(1, report.value_metrics().skipped_size());
@@ -3916,15 +3853,12 @@ TEST(NumericValueMetricProducerTest_BucketDrop, TestMaxBucketDropEvents) {
     valueProducer->onConditionChanged(true, bucketStartTimeNs + 220);
 
     // Check dump report.
-    ProtoOutputStream output;
-    std::set<string> strSet;
     int64_t dumpReportTimeNs = bucketStartTimeNs + 1000;
     // Because we already have 10 dump events in the current bucket,
     // this case should not be added to the list of dump events.
-    valueProducer->onDumpReport(bucketStartTimeNs + 1000, true /* include recent buckets */, true,
-                                FAST /* dumpLatency */, &strSet, &output);
+    StatsLogReport report =
+            onDumpReport(valueProducer, dumpReportTimeNs, true /* include recent buckets */, FAST);
 
-    StatsLogReport report = outputStreamToProto(&output);
     EXPECT_TRUE(report.has_value_metrics());
     ASSERT_EQ(0, report.value_metrics().data_size());
     ASSERT_EQ(1, report.value_metrics().skipped_size());
@@ -4185,11 +4119,8 @@ TEST(NumericValueMetricProducerTest, TestSlicedState) {
                          bucketStartTimeNs + 5 * NS_PER_SEC);
 
     // Start dump report and check output.
-    ProtoOutputStream output;
-    std::set<string> strSet;
-    valueProducer->onDumpReport(bucketStartTimeNs + 50 * NS_PER_SEC,
-                                true /* include recent buckets */, true, NO_TIME_CONSTRAINTS,
-                                &strSet, &output);
+    StatsLogReport report = onDumpReport(valueProducer, bucketStartTimeNs + 50 * NS_PER_SEC,
+                                         true /* include recent buckets */, NO_TIME_CONSTRAINTS);
 
     ASSERT_EQ(1UL, valueProducer->mCurrentSlicedBucket.size());
     ASSERT_EQ(1UL, valueProducer->mDimInfos.size());
@@ -4210,7 +4141,6 @@ TEST(NumericValueMetricProducerTest, TestSlicedState) {
     EXPECT_EQ(it->second.intervals[0].sampleSize, 0);
     assertConditionTimer(it->second.conditionTimer, true, 0, bucketStartTimeNs + 50 * NS_PER_SEC);
 
-    StatsLogReport report = outputStreamToProto(&output);
     EXPECT_TRUE(report.has_value_metrics());
     ASSERT_EQ(3, report.value_metrics().data_size());
 
@@ -4479,11 +4409,8 @@ TEST(NumericValueMetricProducerTest, TestSlicedStateWithMap) {
                          bucketStartTimeNs + 5 * NS_PER_SEC);
 
     // Start dump report and check output.
-    ProtoOutputStream output;
-    std::set<string> strSet;
-    valueProducer->onDumpReport(bucketStartTimeNs + 50 * NS_PER_SEC,
-                                true /* include recent buckets */, true, NO_TIME_CONSTRAINTS,
-                                &strSet, &output);
+    StatsLogReport report = onDumpReport(valueProducer, bucketStartTimeNs + 50 * NS_PER_SEC,
+                                         true /* include recent buckets */, NO_TIME_CONSTRAINTS);
 
     ASSERT_EQ(1UL, valueProducer->mCurrentSlicedBucket.size());
     ASSERT_EQ(1UL, valueProducer->mDimInfos.size());
@@ -4503,7 +4430,6 @@ TEST(NumericValueMetricProducerTest, TestSlicedStateWithMap) {
               it->first.getStateValuesKey().getValues()[0].mValue.long_value);
     assertConditionTimer(it->second.conditionTimer, true, 0, bucketStartTimeNs + 50 * NS_PER_SEC);
 
-    StatsLogReport report = outputStreamToProto(&output);
     EXPECT_TRUE(report.has_value_metrics());
     ASSERT_EQ(3, report.value_metrics().data_size());
 
@@ -4726,13 +4652,10 @@ TEST(NumericValueMetricProducerTest, TestSlicedStateWithPrimaryField_WithDimensi
     ASSERT_EQ(2UL, valueProducer->mDimInfos.size());
 
     // Start dump report and check output.
-    ProtoOutputStream output;
-    std::set<string> strSet;
     int64_t dumpReportTimeNs = bucket2StartTimeNs + 50 * NS_PER_SEC;
-    valueProducer->onDumpReport(dumpReportTimeNs, true /* include recent buckets */, true,
-                                NO_TIME_CONSTRAINTS, &strSet, &output);
+    StatsLogReport report = onDumpReport(valueProducer, dumpReportTimeNs,
+                                         true /* include recent buckets */, NO_TIME_CONSTRAINTS);
 
-    StatsLogReport report = outputStreamToProto(&output);
     backfillDimensionPath(&report);
     backfillStartEndTimestamp(&report);
     EXPECT_TRUE(report.has_value_metrics());
@@ -4980,13 +4903,8 @@ TEST(NumericValueMetricProducerTest, TestSlicedStateWithMissingDataInStateChange
                          bucketStartTimeNs + 10 * NS_PER_SEC);
 
     // Start dump report and check output.
-    ProtoOutputStream output;
-    std::set<string> strSet;
-    valueProducer->onDumpReport(bucketStartTimeNs + 50 * NS_PER_SEC,
-                                true /* include recent buckets */, true, NO_TIME_CONSTRAINTS,
-                                &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, bucketStartTimeNs + 50 * NS_PER_SEC,
+                                         true /* include recent buckets */, NO_TIME_CONSTRAINTS);
     backfillDimensionPath(&report);
     backfillStartEndTimestamp(&report);
     EXPECT_TRUE(report.has_value_metrics());
@@ -5085,13 +5003,8 @@ TEST(NumericValueMetricProducerTest, TestSlicedStateWithMissingDataThenFlushBuck
     ASSERT_EQ(0UL, valueProducer->mCurrentSlicedBucket.size());
 
     // Start dump report and check output.
-    ProtoOutputStream output;
-    std::set<string> strSet;
-    valueProducer->onDumpReport(bucketStartTimeNs + 50 * NS_PER_SEC,
-                                true /* include recent buckets */, true, NO_TIME_CONSTRAINTS,
-                                &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, bucketStartTimeNs + 50 * NS_PER_SEC,
+                                         true /* include recent buckets */, NO_TIME_CONSTRAINTS);
     EXPECT_TRUE(report.has_value_metrics());
     ASSERT_EQ(0, report.value_metrics().data_size());
     ASSERT_EQ(1UL, valueProducer->mCurrentSlicedBucket.size());
@@ -5278,15 +5191,12 @@ TEST(NumericValueMetricProducerTest, TestSlicedStateWithNoPullOnBucketBoundary) 
     assertConditionTimer(it->second.conditionTimer, true, 0, bucket2StartTimeNs + 30 * NS_PER_SEC);
 
     // Start dump report and check output.
-    ProtoOutputStream output;
-    std::set<string> strSet;
-    valueProducer->onDumpReport(bucket2StartTimeNs + 50 * NS_PER_SEC,
-                                true /* include recent buckets */, true, NO_TIME_CONSTRAINTS,
-                                &strSet, &output);
+    StatsLogReport report = onDumpReport(valueProducer, bucket2StartTimeNs + 50 * NS_PER_SEC,
+                                         true /* include recent buckets */, NO_TIME_CONSTRAINTS);
+
     ASSERT_EQ(1UL, valueProducer->mDimInfos.size());
     ASSERT_EQ(1UL, valueProducer->mCurrentSlicedBucket.size());
 
-    StatsLogReport report = outputStreamToProto(&output);
     backfillDimensionPath(&report);
     backfillStartEndTimestamp(&report);
     EXPECT_TRUE(report.has_value_metrics());
@@ -5496,15 +5406,11 @@ TEST(NumericValueMetricProducerTest, TestSlicedStateWithDataMissingInConditionCh
     ASSERT_EQ(2UL, valueProducer->mCurrentSlicedBucket.size());
 
     // Start dump report and check output.
-    ProtoOutputStream output;
-    std::set<string> strSet;
-    valueProducer->onDumpReport(bucketStartTimeNs + 50 * NS_PER_SEC,
-                                true /* include recent buckets */, true, NO_TIME_CONSTRAINTS,
-                                &strSet, &output);
+    StatsLogReport report = onDumpReport(valueProducer, bucketStartTimeNs + 50 * NS_PER_SEC,
+                                         true /* include recent buckets */, NO_TIME_CONSTRAINTS);
     ASSERT_EQ(1UL, valueProducer->mDimInfos.size());
     ASSERT_EQ(1UL, valueProducer->mCurrentSlicedBucket.size());
 
-    StatsLogReport report = outputStreamToProto(&output);
     backfillDimensionPath(&report);
     backfillStartEndTimestamp(&report);
     EXPECT_TRUE(report.has_value_metrics());
@@ -5742,15 +5648,11 @@ TEST(NumericValueMetricProducerTest, TestSlicedStateWithMultipleDimensions) {
     ASSERT_EQ(4UL, valueProducer->mCurrentSlicedBucket.size());
 
     // Start dump report and check output.
-    ProtoOutputStream output;
-    std::set<string> strSet;
-    valueProducer->onDumpReport(bucket2StartTimeNs + 50 * NS_PER_SEC,
-                                true /* include recent buckets */, true, NO_TIME_CONSTRAINTS,
-                                &strSet, &output);
+    StatsLogReport report = onDumpReport(valueProducer, bucket2StartTimeNs + 50 * NS_PER_SEC,
+                                         true /* include recent buckets */, NO_TIME_CONSTRAINTS);
     ASSERT_EQ(3UL, valueProducer->mDimInfos.size());
     ASSERT_EQ(3UL, valueProducer->mCurrentSlicedBucket.size());
 
-    StatsLogReport report = outputStreamToProto(&output);
     backfillDimensionPath(&report);
     backfillStartEndTimestamp(&report);
     EXPECT_TRUE(report.has_value_metrics());
@@ -5978,13 +5880,8 @@ TEST(NumericValueMetricProducerTest, TestSlicedStateWithCondition) {
                          bucket2StartTimeNs + 10 * NS_PER_SEC);
 
     // Start dump report and check output.
-    ProtoOutputStream output;
-    std::set<string> strSet;
-    valueProducer->onDumpReport(bucket2StartTimeNs + 50 * NS_PER_SEC,
-                                true /* include recent buckets */, true, NO_TIME_CONSTRAINTS,
-                                &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, bucket2StartTimeNs + 50 * NS_PER_SEC,
+                                         true /* include recent buckets */, NO_TIME_CONSTRAINTS);
     EXPECT_TRUE(report.has_value_metrics());
     ASSERT_EQ(2, report.value_metrics().data_size());
 
@@ -6126,13 +6023,8 @@ TEST(NumericValueMetricProducerTest, TestSlicedStateWithConditionFalseMultipleBu
     ASSERT_EQ(3UL, valueProducer->mCurrentSlicedBucket.size());
 
     // Start dump report and check output.
-    ProtoOutputStream output;
-    std::set<string> strSet;
-    valueProducer->onDumpReport(bucket3StartTimeNs + 30 * NS_PER_SEC,
-                                true /* include recent buckets */, true, NO_TIME_CONSTRAINTS,
-                                &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, bucket3StartTimeNs + 30 * NS_PER_SEC,
+                                         true /* include recent buckets */, NO_TIME_CONSTRAINTS);
     backfillDimensionPath(&report);
     backfillStartEndTimestamp(&report);
     EXPECT_TRUE(report.has_value_metrics());
@@ -6326,15 +6218,11 @@ TEST(NumericValueMetricProducerTest, TestSlicedStateWithMultipleDimensionsMissin
     ASSERT_EQ(4UL, valueProducer->mCurrentSlicedBucket.size());
 
     // Start dump report and check output.
-    ProtoOutputStream output;
-    std::set<string> strSet;
-    valueProducer->onDumpReport(bucket2StartTimeNs + 50 * NS_PER_SEC,
-                                true /* include recent buckets */, true, NO_TIME_CONSTRAINTS,
-                                &strSet, &output);
+    StatsLogReport report = onDumpReport(valueProducer, bucket2StartTimeNs + 50 * NS_PER_SEC,
+                                         true /* include recent buckets */, NO_TIME_CONSTRAINTS);
     ASSERT_EQ(3UL, valueProducer->mDimInfos.size());
     ASSERT_EQ(3UL, valueProducer->mCurrentSlicedBucket.size());
 
-    StatsLogReport report = outputStreamToProto(&output);
     backfillDimensionPath(&report);
     backfillStartEndTimestamp(&report);
     EXPECT_TRUE(report.has_value_metrics());
@@ -6435,13 +6323,9 @@ TEST(NumericValueMetricProducerTest, TestForcedBucketSplitWhenConditionUnknownSk
     valueProducer->notifyAppUpgrade(appUpdateTimeNs);
 
     // Check dump report.
-    ProtoOutputStream output;
-    std::set<string> strSet;
     int64_t dumpReportTimeNs = bucketStartTimeNs + 10000000000;  // 10 seconds
-    valueProducer->onDumpReport(dumpReportTimeNs, false /* include current buckets */, true,
-                                NO_TIME_CONSTRAINTS /* dumpLatency */, &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, dumpReportTimeNs,
+                                         false /* include recent buckets */, NO_TIME_CONSTRAINTS);
     EXPECT_TRUE(report.has_value_metrics());
     ASSERT_EQ(0, report.value_metrics().data_size());
     ASSERT_EQ(1, report.value_metrics().skipped_size());
@@ -6501,13 +6385,9 @@ TEST(NumericValueMetricProducerTest, TestUploadThreshold) {
     valueProducer->onDataPulled(allData, PullResult::PULL_RESULT_SUCCESS, bucket2StartTimeNs);
 
     // Check dump report.
-    ProtoOutputStream output;
-    std::set<string> strSet;
     int64_t dumpReportTimeNs = bucket2StartTimeNs + 10000000000;
-    valueProducer->onDumpReport(dumpReportTimeNs, true /* include current buckets */, true,
-                                NO_TIME_CONSTRAINTS /* dumpLatency */, &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, dumpReportTimeNs,
+                                         true /* include recent buckets */, NO_TIME_CONSTRAINTS);
     backfillDimensionPath(&report);
     backfillStartEndTimestamp(&report);
     EXPECT_TRUE(report.has_value_metrics());
@@ -6983,12 +6863,8 @@ TEST(NumericValueMetricProducerTest_ConditionCorrection, TestThresholdNotDefined
                                     {bucketStartTimeNs}, {bucket2StartTimeNs});
 
     // generate dump report and validate correction value in the reported buckets
-    ProtoOutputStream output;
-    std::set<string> strSet;
-    valueProducer->onDumpReport(bucket3StartTimeNs, false /* include partial bucket */, true,
-                                FAST /* dumpLatency */, &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, bucket3StartTimeNs,
+                                         false /* include recent buckets */, FAST);
 
     EXPECT_TRUE(report.has_value_metrics());
     ASSERT_EQ(1, report.value_metrics().data_size());
@@ -7039,12 +6915,8 @@ TEST(NumericValueMetricProducerTest_ConditionCorrection, TestThresholdDefinedZer
                                     {bucketStartTimeNs}, {bucket2StartTimeNs});
 
     // generate dump report and validate correction value in the reported buckets
-    ProtoOutputStream output;
-    std::set<string> strSet;
-    valueProducer->onDumpReport(bucket3StartTimeNs, false /* include partial bucket */, true,
-                                FAST /* dumpLatency */, &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, bucket3StartTimeNs,
+                                         false /* include recent buckets */, FAST);
 
     EXPECT_TRUE(report.has_value_metrics());
     ASSERT_EQ(1, report.value_metrics().data_size());
@@ -7108,12 +6980,8 @@ TEST(NumericValueMetricProducerTest_ConditionCorrection, TestThresholdUploadPass
                                     {bucket2StartTimeNs, bucket3StartTimeNs});
 
     // generate dump report and validate correction value in the reported buckets
-    ProtoOutputStream output;
-    std::set<string> strSet;
-    valueProducer->onDumpReport(bucket3StartTimeNs, false /* include partial bucket */, true,
-                                FAST /* dumpLatency */, &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, bucket3StartTimeNs,
+                                         false /* include recent buckets */, FAST);
 
     EXPECT_TRUE(report.has_value_metrics());
     ASSERT_EQ(1, report.value_metrics().data_size());
@@ -7168,12 +7036,8 @@ TEST(NumericValueMetricProducerTest_ConditionCorrection, TestThresholdUploadPass
                                     {bucketStartTimeNs}, {bucket2StartTimeNs});
 
     // generate dump report and validate correction value in the reported buckets
-    ProtoOutputStream output;
-    std::set<string> strSet;
-    valueProducer->onDumpReport(bucket3StartTimeNs, false /* include partial bucket */, true,
-                                FAST /* dumpLatency */, &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, bucket3StartTimeNs,
+                                         false /* include recent buckets */, FAST);
 
     EXPECT_TRUE(report.has_value_metrics());
     ASSERT_EQ(1, report.value_metrics().data_size());
@@ -7226,12 +7090,8 @@ TEST(NumericValueMetricProducerTest_ConditionCorrection, TestThresholdUploadSkip
                                     {bucketStartTimeNs}, {bucket2StartTimeNs});
 
     // generate dump report and validate correction value in the reported buckets
-    ProtoOutputStream output;
-    std::set<string> strSet;
-    valueProducer->onDumpReport(bucket3StartTimeNs, false /* include partial bucket */, true,
-                                FAST /* dumpLatency */, &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, bucket3StartTimeNs,
+                                         false /* include recent buckets */, FAST);
 
     EXPECT_TRUE(report.has_value_metrics());
     ASSERT_EQ(1, report.value_metrics().data_size());
@@ -7321,12 +7181,8 @@ TEST(NumericValueMetricProducerTest_ConditionCorrection, TestLateStateChangeSlic
     ASSERT_EQ(1UL, valueProducer->mDimInfos.size());
 
     // Start dump report and check output.
-    ProtoOutputStream output;
-    std::set<string> strSet;
-    valueProducer->onDumpReport(bucket4StartTimeNs + 10, false /* do not include partial buckets */,
-                                true, NO_TIME_CONSTRAINTS, &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, bucket4StartTimeNs + 10,
+                                         false /* include recent buckets */, NO_TIME_CONSTRAINTS);
     backfillStartEndTimestamp(&report);
     EXPECT_TRUE(report.has_value_metrics());
     ASSERT_EQ(3, report.value_metrics().data_size());
@@ -7407,15 +7263,12 @@ TEST(NumericValueMetricProducerTest, TestSubsetDimensions) {
     ASSERT_EQ(2UL, valueProducer->mDimInfos.size());
 
     // Check dump report.
-    ProtoOutputStream output;
-    std::set<string> strSet;
     int64_t dumpReportTimeNs = bucket2StartTimeNs + 10000000000;
-    valueProducer->onDumpReport(dumpReportTimeNs, true /* include current buckets */, true,
-                                NO_TIME_CONSTRAINTS /* dumpLatency */, &strSet, &output);
+    StatsLogReport report = onDumpReport(valueProducer, dumpReportTimeNs,
+                                         true /* include recent buckets */, NO_TIME_CONSTRAINTS);
     ASSERT_EQ(0UL, valueProducer->mCurrentSlicedBucket.size());
     ASSERT_EQ(2UL, valueProducer->mDimInfos.size());
 
-    StatsLogReport report = outputStreamToProto(&output);
     backfillDimensionPath(&report);
     backfillStartEndTimestamp(&report);
     EXPECT_TRUE(report.has_value_metrics());
@@ -7439,7 +7292,8 @@ TEST(NumericValueMetricProducerTest, TestSubsetDimensions) {
     ValidateValueBucket(data.bucket_info(1), bucket2StartTimeNs, dumpReportTimeNs, {26}, -1, 0);
 }
 
-TEST(NumericValueMetricProducerTest, TestRepeatedValueFieldAndDimensions) {
+TEST_GUARDED(NumericValueMetricProducerTest, TestRepeatedValueFieldAndDimensions,
+             __ANDROID_API_T__) {
     ValueMetric metric = NumericValueMetricProducerTestHelper::createMetricWithRepeatedValueField();
     metric.mutable_dimensions_in_what()->set_field(tagId);
     FieldMatcher* valueChild = metric.mutable_dimensions_in_what()->add_child();
@@ -7484,13 +7338,9 @@ TEST(NumericValueMetricProducerTest, TestRepeatedValueFieldAndDimensions) {
     valueProducer->onDataPulled(allData, PullResult::PULL_RESULT_SUCCESS, bucket2StartTimeNs);
 
     // Check dump report.
-    ProtoOutputStream output;
-    std::set<string> strSet;
     int64_t dumpReportTimeNs = bucket2StartTimeNs + 10000000000;
-    valueProducer->onDumpReport(dumpReportTimeNs, true /* include current buckets */, true,
-                                NO_TIME_CONSTRAINTS /* dumpLatency */, &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, dumpReportTimeNs,
+                                         true /* include recent buckets */, NO_TIME_CONSTRAINTS);
     backfillDimensionPath(&report);
     backfillStartEndTimestamp(&report);
     EXPECT_TRUE(report.has_value_metrics());
@@ -7575,13 +7425,8 @@ TEST(NumericValueMetricProducerTest, TestSampleSize) {
     valueProducerSumWithSampleSize->flushIfNeededLocked(bucket2StartTimeNs);
 
     // Start dump report and check output.
-    ProtoOutputStream outputAvg;
-    std::set<string> strSetAvg;
-    valueProducerAvg->onDumpReport(bucket2StartTimeNs + 50 * NS_PER_SEC,
-                                   true /* include recent buckets */, true, NO_TIME_CONSTRAINTS,
-                                   &strSetAvg, &outputAvg);
-
-    StatsLogReport reportAvg = outputStreamToProto(&outputAvg);
+    StatsLogReport reportAvg = onDumpReport(valueProducerAvg, bucket2StartTimeNs + 50 * NS_PER_SEC,
+                                            true /* include recent buckets */, NO_TIME_CONSTRAINTS);
     ASSERT_EQ(1, reportAvg.value_metrics().data_size());
 
     ValueMetricData data = reportAvg.value_metrics().data(0);
@@ -7591,13 +7436,8 @@ TEST(NumericValueMetricProducerTest, TestSampleSize) {
     EXPECT_TRUE(std::abs(data.bucket_info(0).values(0).value_double() - 12.5) < epsilon);
 
     // Start dump report and check output.
-    ProtoOutputStream outputSum;
-    std::set<string> strSetSum;
-    valueProducerSum->onDumpReport(bucket2StartTimeNs + 50 * NS_PER_SEC,
-                                   true /* include recent buckets */, true, NO_TIME_CONSTRAINTS,
-                                   &strSetSum, &outputSum);
-
-    StatsLogReport reportSum = outputStreamToProto(&outputSum);
+    StatsLogReport reportSum = onDumpReport(valueProducerSum, bucket2StartTimeNs + 50 * NS_PER_SEC,
+                                            true /* include recent buckets */, NO_TIME_CONSTRAINTS);
     ASSERT_EQ(1, reportSum.value_metrics().data_size());
 
     data = reportSum.value_metrics().data(0);
@@ -7607,13 +7447,9 @@ TEST(NumericValueMetricProducerTest, TestSampleSize) {
     EXPECT_FALSE(data.bucket_info(0).values(0).has_sample_size());
 
     // Start dump report and check output.
-    ProtoOutputStream outputSumWithSampleSize;
-    std::set<string> strSetSumWithSampleSize;
-    valueProducerSumWithSampleSize->onDumpReport(
-            bucket2StartTimeNs + 50 * NS_PER_SEC, true /* include recent buckets */, true,
-            NO_TIME_CONSTRAINTS, &strSetSumWithSampleSize, &outputSumWithSampleSize);
-
-    StatsLogReport reportSumWithSampleSize = outputStreamToProto(&outputSumWithSampleSize);
+    StatsLogReport reportSumWithSampleSize =
+            onDumpReport(valueProducerSumWithSampleSize, bucket2StartTimeNs + 50 * NS_PER_SEC,
+                         true /* include recent buckets */, NO_TIME_CONSTRAINTS);
     ASSERT_EQ(1, reportSumWithSampleSize.value_metrics().data_size());
 
     data = reportSumWithSampleSize.value_metrics().data(0);
@@ -7665,13 +7501,9 @@ TEST(NumericValueMetricProducerTest, TestDimensionalSampling) {
                     pullerManager, sampledValueMetric);
 
     // Check dump report.
-    ProtoOutputStream output;
-    std::set<string> strSet;
     int64_t dumpReportTimeNs = bucketStartTimeNs + 10000000000;
-    valueProducer->onDumpReport(dumpReportTimeNs, true /* include current buckets */, true,
-                                NO_TIME_CONSTRAINTS /* dumpLatency */, &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, dumpReportTimeNs,
+                                         true /* include recent buckets */, NO_TIME_CONSTRAINTS);
     backfillDimensionPath(&report);
     backfillStartEndTimestamp(&report);
     EXPECT_TRUE(report.has_value_metrics());
@@ -7784,13 +7616,9 @@ TEST(NumericValueMetricProducerTest, TestMultipleAggTypesPulled) {
     valueProducer->onDataPulled(allData, PullResult::PULL_RESULT_SUCCESS, bucket2StartTimeNs);
 
     // Check dump report.
-    ProtoOutputStream output;
-    std::set<string> strSet;
     int64_t dumpReportTimeNs = bucket2StartTimeNs + 55 * NS_PER_SEC;
-    valueProducer->onDumpReport(dumpReportTimeNs, true /* include current buckets */, true,
-                                NO_TIME_CONSTRAINTS /* dumpLatency */, &strSet, &output);
-
-    StatsLogReport report = outputStreamToProto(&output);
+    StatsLogReport report = onDumpReport(valueProducer, dumpReportTimeNs,
+                                         true /* include recent buckets */, NO_TIME_CONSTRAINTS);
     backfillDimensionPath(&report);
     backfillStartEndTimestamp(&report);
     EXPECT_TRUE(report.has_value_metrics());
@@ -7916,11 +7744,9 @@ TEST(NumericValueMetricProducerTest, TestMultipleAggTypesPushed) {
     valueProducer->onMatchedLogEvent(1 /*log matcher index*/, event12);
 
     // Check dump report.
-    ProtoOutputStream output;
-    valueProducer->onDumpReport(bucket3StartTimeNs + 10000, false /* include recent buckets */,
-                                true, FAST /* dumpLatency */, nullptr, &output);
+    StatsLogReport report = onDumpReport(valueProducer, bucket3StartTimeNs + 10000,
+                                         false /* include recent buckets */, FAST);
 
-    StatsLogReport report = outputStreamToProto(&output);
     backfillDimensionPath(&report);
     backfillStartEndTimestamp(&report);
     EXPECT_TRUE(report.has_value_metrics());
@@ -7967,6 +7793,123 @@ TEST(NumericValueMetricProducerTest, TestMultipleAggTypesPushed) {
                         {3, 20, 30, 10, 93}, 0, 0);
     for (int i = 0; i < data.bucket_info(1).values_size(); ++i) {
         EXPECT_EQ(3, data.bucket_info(1).values(i).sample_size());
+    }
+}
+
+TEST(NumericValueMetricProducerTest, TestCorruptedDataReason_WhatLoss) {
+    ValueMetric metric = NumericValueMetricProducerTestHelper::createMetric();
+    *metric.mutable_dimensions_in_what() = CreateDimensions(tagId, {1 /*uid*/});
+
+    sp<MockStatsPullerManager> pullerManager = new StrictMock<MockStatsPullerManager>();
+    sp<NumericValueMetricProducer> valueProducer =
+            NumericValueMetricProducerTestHelper::createValueProducerNoConditions(
+                    pullerManager, metric, /*pullAtomId=*/-1);
+
+    valueProducer->onMatchedLogEventLost(tagId, DATA_CORRUPTED_SOCKET_LOSS,
+                                         MetricProducer::LostAtomType::kWhat);
+    {
+        // Check dump report content.
+        StatsLogReport report = onDumpReport(valueProducer, bucketStartTimeNs + 50,
+                                             true /* include recent buckets */, FAST);
+        EXPECT_THAT(report.data_corrupted_reason(), ElementsAre(DATA_CORRUPTED_SOCKET_LOSS));
+    }
+
+    valueProducer->onMatchedLogEventLost(tagId, DATA_CORRUPTED_EVENT_QUEUE_OVERFLOW,
+                                         MetricProducer::LostAtomType::kWhat);
+    {
+        // Check dump report content.
+        StatsLogReport report = onDumpReport(valueProducer, bucketStartTimeNs + 150,
+                                             true /* include recent buckets */, FAST);
+        EXPECT_THAT(report.data_corrupted_reason(),
+                    ElementsAre(DATA_CORRUPTED_EVENT_QUEUE_OVERFLOW));
+    }
+}
+
+TEST(NumericValueMetricProducerTest, TestCorruptedDataReason_WhatLossDiffedMetric) {
+    ValueMetric metric = NumericValueMetricProducerTestHelper::createMetric();
+    *metric.mutable_dimensions_in_what() = CreateDimensions(tagId, {1 /*uid*/});
+
+    sp<MockStatsPullerManager> pullerManager = new NiceMock<MockStatsPullerManager>();
+    sp<NumericValueMetricProducer> valueProducer =
+            NumericValueMetricProducerTestHelper::createValueProducerNoConditions(
+                    pullerManager, metric, /*pullAtomId=*/1);
+
+    valueProducer->onMatchedLogEventLost(tagId, DATA_CORRUPTED_SOCKET_LOSS,
+                                         MetricProducer::LostAtomType::kWhat);
+    {
+        // Check dump report content.
+        StatsLogReport report = onDumpReport(valueProducer, bucketStartTimeNs + 50,
+                                             true /* include recent buckets */, FAST);
+        EXPECT_THAT(report.data_corrupted_reason(), ElementsAre(DATA_CORRUPTED_SOCKET_LOSS));
+    }
+
+    valueProducer->onMatchedLogEventLost(tagId, DATA_CORRUPTED_EVENT_QUEUE_OVERFLOW,
+                                         MetricProducer::LostAtomType::kWhat);
+    {
+        // Check dump report content.
+        StatsLogReport report = onDumpReport(valueProducer, bucketStartTimeNs + 150,
+                                             true /* include recent buckets */, FAST);
+        EXPECT_THAT(report.data_corrupted_reason(),
+                    ElementsAre(DATA_CORRUPTED_EVENT_QUEUE_OVERFLOW, DATA_CORRUPTED_SOCKET_LOSS));
+    }
+}
+
+TEST(NumericValueMetricProducerTest, TestCorruptedDataReason_ConditionLoss) {
+    const int conditionId = 10;
+
+    ValueMetric metric = NumericValueMetricProducerTestHelper::createMetricWithCondition();
+
+    sp<MockConfigMetadataProvider> provider = makeMockConfigMetadataProvider(/*enabled=*/false);
+    sp<MockStatsPullerManager> pullerManager = new StrictMock<MockStatsPullerManager>();
+    sp<NumericValueMetricProducer> valueProducer =
+            NumericValueMetricProducerTestHelper::createValueProducerWithCondition(
+                    pullerManager, metric, ConditionState::kFalse);
+
+    valueProducer->onMatchedLogEventLost(conditionId, DATA_CORRUPTED_SOCKET_LOSS,
+                                         MetricProducer::LostAtomType::kCondition);
+    {
+        // Check dump report content.
+        StatsLogReport report = onDumpReport(valueProducer, bucketStartTimeNs + 50,
+                                             true /* include recent buckets */, FAST);
+        EXPECT_THAT(report.data_corrupted_reason(), ElementsAre(DATA_CORRUPTED_SOCKET_LOSS));
+    }
+
+    valueProducer->onMatchedLogEventLost(conditionId, DATA_CORRUPTED_EVENT_QUEUE_OVERFLOW,
+                                         MetricProducer::LostAtomType::kCondition);
+    {
+        // Check dump report content.
+        StatsLogReport report = onDumpReport(valueProducer, bucketStartTimeNs + 150,
+                                             true /* include recent buckets */, FAST);
+        EXPECT_THAT(report.data_corrupted_reason(),
+                    ElementsAre(DATA_CORRUPTED_EVENT_QUEUE_OVERFLOW, DATA_CORRUPTED_SOCKET_LOSS));
+    }
+}
+
+TEST(NumericValueMetricProducerTest, TestCorruptedDataReason_StateLoss) {
+    const int stateAtomId = 10;
+
+    ValueMetric metric = NumericValueMetricProducerTestHelper::createMetricWithCondition();
+
+    sp<MockConfigMetadataProvider> provider = makeMockConfigMetadataProvider(/*enabled=*/false);
+    sp<MockStatsPullerManager> pullerManager = new StrictMock<MockStatsPullerManager>();
+    sp<NumericValueMetricProducer> valueProducer =
+            NumericValueMetricProducerTestHelper::createValueProducerWithCondition(
+                    pullerManager, metric, ConditionState::kFalse);
+
+    valueProducer->onStateEventLost(stateAtomId, DATA_CORRUPTED_SOCKET_LOSS);
+    {
+        // Check dump report content.
+        StatsLogReport report = onDumpReport(valueProducer, bucketStartTimeNs + 50,
+                                             true /* include recent buckets */, FAST);
+        EXPECT_THAT(report.data_corrupted_reason(), ElementsAre(DATA_CORRUPTED_SOCKET_LOSS));
+    }
+
+    // validation that data corruption signal remains accurate after another dump
+    {
+        // Check dump report content.
+        StatsLogReport report = onDumpReport(valueProducer, bucketStartTimeNs + 150,
+                                             true /* include recent buckets */, FAST);
+        EXPECT_THAT(report.data_corrupted_reason(), ElementsAre(DATA_CORRUPTED_SOCKET_LOSS));
     }
 }
 

@@ -231,8 +231,8 @@ StatsdStats::StatsdStats()
 }
 
 StatsdStats& StatsdStats::getInstance() {
-    static StatsdStats statsInstance;
-    return statsInstance;
+    static StatsdStats* statsInstance = new StatsdStats();
+    return *statsInstance;
 }
 
 void StatsdStats::addToIceBoxLocked(shared_ptr<ConfigStats>& stats) {
@@ -1227,13 +1227,9 @@ bool StatsdStats::hasEventQueueOverflow() const {
     return mOverflowCount != 0;
 }
 
-vector<std::pair<int32_t, int32_t>> StatsdStats::getQueueOverflowAtomsStats() const {
+StatsdStats::QueueOverflowAtomsStatsMap StatsdStats::getQueueOverflowAtomsStats() const {
     lock_guard<std::mutex> lock(mLock);
-
-    vector<std::pair<int32_t, int32_t>> atomsStats(mPushedAtomDropsStats.begin(),
-                                                   mPushedAtomDropsStats.end());
-
-    return atomsStats;
+    return mPushedAtomDropsStats;
 }
 
 bool StatsdStats::hasSocketLoss() const {

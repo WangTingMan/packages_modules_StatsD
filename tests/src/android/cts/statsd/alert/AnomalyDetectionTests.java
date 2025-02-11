@@ -87,8 +87,6 @@ public class AnomalyDetectionTests extends DeviceTestCase implements IBuildRecei
     private static final int ANOMALY_EVENT_ID = 101;
     private static final int INCIDENTD_SECTION = -1;
 
-    private boolean defaultSystemTracingConfigurationHasChanged = false;
-
     private IBuildInfo mCtsBuild;
 
     @Override
@@ -102,16 +100,7 @@ public class AnomalyDetectionTests extends DeviceTestCase implements IBuildRecei
         if (!INCIDENTD_TESTS_ENABLED) {
             CLog.w(TAG, TAG + " anomaly tests are disabled by a flag. Change flag to true to run");
         }
-        if (PERFETTO_TESTS_ENABLED) {
-            // Default Android configuration can only change for device type that doesn't require
-            // SystemTracingEnabled
-            // by default in CDD.
-            String chars = getDevice().getProperty("ro.build.characteristics");
-            if (!isSystemTracingEnabled() && chars.contains("automotive")) {
-                enableSystemTracing();
-                defaultSystemTracingConfigurationHasChanged = true;
-            }
-        }
+
         RunUtil.getDefault().sleep(AtomTestUtils.WAIT_TIME_LONG);
     }
 
@@ -127,10 +116,6 @@ public class AnomalyDetectionTests extends DeviceTestCase implements IBuildRecei
         ReportUtils.clearReports(getDevice());
         DeviceUtils.uninstallTestApp(getDevice(), MetricsUtils.DEVICE_SIDE_TEST_PACKAGE);
         if (PERFETTO_TESTS_ENABLED) {
-            // Disable SystemTracing if previously enabled at test setUp()
-            if (defaultSystemTracingConfigurationHasChanged) {
-                disableSystemTracing();
-            }
             // Deadline to finish trace collection
             final long deadLine = System.currentTimeMillis() + 10000;
             while (isSystemTracingEnabled()) {
@@ -604,14 +589,6 @@ public class AnomalyDetectionTests extends DeviceTestCase implements IBuildRecei
     private String probe(String path) throws Exception {
         return getDevice().executeShellCommand("if [ -e " + path + " ] ; then"
                 + " cat " + path + " ; else echo -1 ; fi");
-    }
-
-    protected void enableSystemTracing() throws Exception {
-        getDevice().executeShellCommand("setprop persist.traced.enable 1");
-    }
-
-    protected void disableSystemTracing() throws Exception {
-        getDevice().executeShellCommand("setprop persist.traced.enable 0");
     }
 
     /**

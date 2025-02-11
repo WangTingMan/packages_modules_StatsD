@@ -16,6 +16,7 @@
 
 package {
     default_applicable_licenses: ["Android-Apache-2.0"],
+    default_team: "trendy_team_android_telemetry_client_infra",
 }
 
 cc_defaults {
@@ -96,6 +97,7 @@ cc_defaults {
         "src/metrics/EventMetricProducer.cpp",
         "src/metrics/RestrictedEventMetricProducer.cpp",
         "src/metrics/GaugeMetricProducer.cpp",
+        "src/metrics/HistogramValue.cpp",
         "src/metrics/KllMetricProducer.cpp",
         "src/metrics/MetricProducer.cpp",
         "src/metrics/MetricsManager.cpp",
@@ -146,17 +148,19 @@ cc_defaults {
         "libutils",
         "server_configurable_flags",
         "statsd-aidl-ndk",
+        "statsd_flags_c_lib",
         "libsqlite_static_noicu",
     ],
     shared_libs: [
         "libbinder_ndk",
         "libincident",
         "liblog",
-        "libstatssocket",
+        "libstatssocket#impl",
     ],
     header_libs: [
         "libgtest_prod_headers",
     ],
+    min_sdk_version: "30",
 }
 
 genrule {
@@ -225,10 +229,7 @@ cc_library_static {
     generated_sources: ["statslog_statsd.cpp"],
     generated_headers: ["statslog_statsd.h"],
     export_generated_headers: ["statslog_statsd.h"],
-    apex_available: [
-        "com.android.os.statsd",
-        "test_com.android.os.statsd",
-    ],
+    apex_available: ["com.android.os.statsd"],
     min_sdk_version: "30",
     shared_libs: [
         "libstatssocket",
@@ -254,11 +255,12 @@ cc_binary {
         "-Wextra",
         "-Werror",
         "-Wno-unused-parameter",
-        // optimize for size (protobuf glop can get big)
-        "-Os",
         // "-g",
         // "-O0",
     ],
+
+    // optimize for size (protobuf glop can get big)
+    optimize_for_size: true,
 
     proto: {
         type: "lite",
@@ -270,6 +272,7 @@ cc_binary {
         "com.android.os.statsd",
         "test_com.android.os.statsd",
     ],
+    runtime_libs: ["libuprobestats_client"],
     min_sdk_version: "30",
 }
 
@@ -297,6 +300,9 @@ cc_defaults {
     static_libs: [
         "libgmock",
         "libstatslog_statsdtest",
+    ],
+    header_libs: [
+        "libstatssocket_test_headers",
     ],
     proto: {
         type: "lite",
@@ -425,6 +431,7 @@ cc_test {
         "tests/e2e/RestrictedConfig_e2e_test.cpp",
         "tests/e2e/RestrictedEventMetric_e2e_test.cpp",
         "tests/e2e/StringReplace_e2e_test.cpp",
+        "tests/e2e/ValueMetric_histogram_e2e_test.cpp",
         "tests/e2e/ValueMetric_pull_e2e_test.cpp",
         "tests/e2e/WakelockDuration_e2e_test.cpp",
         "tests/external/puller_util_test.cpp",
@@ -444,6 +451,7 @@ cc_test {
         "tests/metrics/DurationMetricProducer_test.cpp",
         "tests/metrics/EventMetricProducer_test.cpp",
         "tests/metrics/GaugeMetricProducer_test.cpp",
+        "tests/metrics/HistogramValue_test.cpp",
         "tests/metrics/KllMetricProducer_test.cpp",
         "tests/metrics/MaxDurationTracker_test.cpp",
         "tests/metrics/OringDurationTracker_test.cpp",
@@ -464,8 +472,8 @@ cc_test {
         "tests/StatsService_test.cpp",
         "tests/storage/StorageManager_test.cpp",
         "tests/UidMap_test.cpp",
-        "tests/utils/MultiConditionTrigger_test.cpp",
         "tests/utils/DbUtils_test.cpp",
+        "tests/utils/MultiConditionTrigger_test.cpp",
     ],
 
     static_libs: [
@@ -474,7 +482,6 @@ cc_test {
     ],
 
     min_sdk_version: "30",
-    test_for: ["com.android.os.statsd"],
 }
 
 //#############################
@@ -500,6 +507,7 @@ cc_benchmark {
         "benchmark/loss_info_container_benchmark.cpp",
         "benchmark/string_transform_benchmark.cpp",
         "benchmark/value_metric_benchmark.cpp",
+        "benchmark/tex_metric_benchmark.cpp",
     ],
 
     cflags: [
@@ -512,7 +520,6 @@ cc_benchmark {
         "libstats_test_utils",
     ],
 
-    test_for: ["com.android.os.statsd"],
 }
 
 // ====  java proto device library (for test only)  ==============================
@@ -615,7 +622,6 @@ cc_fuzz {
         "fuzzers/statsd_service_fuzzer.cpp",
     ],
     shared_libs: [
-        "libstatssocket",
         "libvndksupport",
     ],
     cflags: [
@@ -644,9 +650,6 @@ cc_fuzz {
     ],
     srcs: [
         "fuzzers/statsd_socket_data_fuzzer.cpp",
-    ],
-    shared_libs: [
-        "libstatssocket",
     ],
     cflags: [
         "-Wall",

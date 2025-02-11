@@ -883,10 +883,10 @@ optional<InvalidConfigReason> updateMetrics(
                 producer = createEventMetricProducerAndUpdateMetadata(
                         key, config, timeBaseNs, metric, metricIndex, allAtomMatchingTrackers,
                         newAtomMatchingTrackerMap, allConditionTrackers, conditionTrackerMap,
-                        initialConditionCache, wizard, metricToActivationMap, trackerToMetricMap,
-                        conditionToMetricMap, activationAtomTrackerToMetricMap,
-                        deactivationAtomTrackerToMetricMap, metricsWithActivation,
-                        invalidConfigReason, configMetadataProvider);
+                        initialConditionCache, wizard, stateAtomIdMap, allStateGroupMaps,
+                        metricToActivationMap, trackerToMetricMap, conditionToMetricMap,
+                        activationAtomTrackerToMetricMap, deactivationAtomTrackerToMetricMap,
+                        metricsWithActivation, invalidConfigReason, configMetadataProvider);
                 break;
             }
             default: {

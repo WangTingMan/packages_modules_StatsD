@@ -1062,7 +1062,8 @@ TEST_F(MetricsManagerUtilTest, TestValueMetricValueFieldHasPositionAll) {
     metric->set_id(metricId);
     metric->set_what(1);
 
-    metric->mutable_value_field()->set_position(ALL);
+    metric->mutable_value_field()->add_child()->set_field(2);
+    metric->mutable_value_field()->mutable_child(0)->set_position(ALL);
 
     EXPECT_EQ(initConfig(config),
               InvalidConfigReason(INVALID_CONFIG_REASON_VALUE_METRIC_VALUE_FIELD_HAS_POSITION_ALL,
@@ -1849,7 +1850,7 @@ TEST_F(MetricsManagerUtilTest, TestMetricHasRepeatedSampledField_PositionANY) {
             util::TEST_ATOM_REPORTED, {9 /*repeated_int_field*/}, {Position::ANY});
     *metric.mutable_dimensional_sampling_info()->mutable_sampled_what_field() =
             CreateRepeatedDimensions(util::TEST_ATOM_REPORTED, {9 /*repeated_int_field*/},
-                                     {Position::ALL});
+                                     {Position::ANY});
     metric.mutable_dimensional_sampling_info()->set_shard_count(2);
     *config.add_count_metric() = metric;
 
@@ -2395,12 +2396,7 @@ TEST_F(MetricsManagerUtilTest, TestCombinationMatcherWithStringReplace) {
 }
 
 TEST_F(MetricsManagerUtilTest, TestNumericValueMetricMissingHistogramBinConfigSingleAggType) {
-    StatsdConfig config;
-    *config.add_atom_matcher() = CreateSimpleAtomMatcher("matcher", /* atomId */ 1);
-    *config.add_value_metric() =
-            createValueMetric("ValueMetric", config.atom_matcher(0), /* valueField */ 1,
-                              /* condition */ nullopt, /* states */ {});
-    config.mutable_value_metric(0)->set_aggregation_type(ValueMetric::HISTOGRAM);
+    StatsdConfig config = createHistogramStatsdConfig();
 
     EXPECT_EQ(initConfig(config),
               InvalidConfigReason(
@@ -2409,11 +2405,11 @@ TEST_F(MetricsManagerUtilTest, TestNumericValueMetricMissingHistogramBinConfigSi
 }
 
 TEST_F(MetricsManagerUtilTest, TestNumericValueMetricMissingHistogramBinConfigMultipleAggTypes) {
-    StatsdConfig config;
-    *config.add_atom_matcher() = CreateSimpleAtomMatcher("matcher", /* atomId */ 1);
-    *config.add_value_metric() = createValueMetric(
-            "ValueMetric", config.atom_matcher(0), /* valueFields */ {1, 2},
-            {ValueMetric::SUM, ValueMetric::HISTOGRAM}, /* condition */ nullopt, /* states */ {});
+    StatsdConfig config = createHistogramStatsdConfig();
+    config.mutable_value_metric(0)->clear_aggregation_type();
+    config.mutable_value_metric(0)->add_aggregation_types(ValueMetric::SUM);
+    config.mutable_value_metric(0)->add_aggregation_types(ValueMetric::HISTOGRAM);
+    config.mutable_value_metric(0)->mutable_value_field()->add_child()->set_field(2);
 
     EXPECT_EQ(initConfig(config),
               InvalidConfigReason(
@@ -2422,14 +2418,9 @@ TEST_F(MetricsManagerUtilTest, TestNumericValueMetricMissingHistogramBinConfigMu
 }
 
 TEST_F(MetricsManagerUtilTest, TestNumericValueMetricExtraHistogramBinConfig) {
-    StatsdConfig config;
-    *config.add_atom_matcher() = CreateSimpleAtomMatcher("matcher", /* atomId */ 1);
-    *config.add_value_metric() =
-            createValueMetric("ValueMetric", config.atom_matcher(0), /* valueField */ 1,
-                              /* condition */ nullopt, /* states */ {});
-
+    StatsdConfig config = createExplicitHistogramStatsdConfig({5, 10, 12});
     *config.mutable_value_metric(0)->add_histogram_bin_configs() =
-            createExplicitBinConfig(/* id */ 1, /* bins */ {5});
+            createExplicitBinConfig(/* id */ 1, /* bins */ {5, 10, 20});
 
     EXPECT_EQ(initConfig(config),
               InvalidConfigReason(
@@ -2438,17 +2429,232 @@ TEST_F(MetricsManagerUtilTest, TestNumericValueMetricExtraHistogramBinConfig) {
 }
 
 TEST_F(MetricsManagerUtilTest, TestNumericValueMetricHistogramMultipleValueFields) {
-    StatsdConfig config;
-    *config.add_atom_matcher() = CreateSimpleAtomMatcher("matcher", /* atomId */ 1);
-    *config.add_value_metric() =
-            createValueMetric("ValueMetric", config.atom_matcher(0), /* valueFields */ {1, 2},
-                              /* aggregationTypes */ {}, /* condition */ nullopt, /* states */ {});
-    config.mutable_value_metric(0)->set_aggregation_type(ValueMetric::HISTOGRAM);
-
-    *config.mutable_value_metric(0)->add_histogram_bin_configs() =
-            createExplicitBinConfig(/* id */ 1, /* bins */ {5, 10, 12});
+    StatsdConfig config = createExplicitHistogramStatsdConfig({5, 10, 12});
+    config.mutable_value_metric(0)->mutable_value_field()->add_child()->set_field(2);
 
     EXPECT_EQ(initConfig(config), nullopt);
+}
+
+TEST_F(MetricsManagerUtilTest, TestNumericValueMetricHistogramWithUploadThreshold) {
+    StatsdConfig config = createExplicitHistogramStatsdConfig({5, 10, 12});
+    config.mutable_value_metric(0)->mutable_threshold()->set_lt_float(1.0);
+
+    EXPECT_EQ(initConfig(config),
+              InvalidConfigReason(INVALID_CONFIG_REASON_VALUE_METRIC_HIST_WITH_UPLOAD_THRESHOLD,
+                                  config.value_metric(0).id()));
+
+    clearData();
+    config.mutable_value_metric(0)->clear_aggregation_type();
+    config.mutable_value_metric(0)->add_aggregation_types(ValueMetric::HISTOGRAM);
+    config.mutable_value_metric(0)->add_aggregation_types(ValueMetric::SUM);
+    config.mutable_value_metric(0)->mutable_value_field()->add_child()->set_field(2);
+
+    EXPECT_EQ(initConfig(config),
+              InvalidConfigReason(INVALID_CONFIG_REASON_VALUE_METRIC_HIST_WITH_UPLOAD_THRESHOLD,
+                                  config.value_metric(0).id()));
+}
+
+TEST_F(MetricsManagerUtilTest,
+       TestValueMetricValueFieldHasPositionAllWithStatsdAggregatedHistogram) {
+    StatsdConfig config = createExplicitHistogramStatsdConfig({5, 10, 12});
+    config.mutable_value_metric(0)->mutable_value_field()->mutable_child(0)->set_position(ALL);
+
+    EXPECT_EQ(initConfig(config),
+              InvalidConfigReason(INVALID_CONFIG_REASON_VALUE_METRIC_VALUE_FIELD_HAS_POSITION_ALL,
+                                  config.value_metric(0).id()));
+
+    clearData();
+    config.mutable_value_metric(0)->clear_aggregation_type();
+    config.mutable_value_metric(0)->add_aggregation_types(ValueMetric::HISTOGRAM);
+    config.mutable_value_metric(0)->add_aggregation_types(ValueMetric::SUM);
+    config.mutable_value_metric(0)->mutable_value_field()->add_child()->set_field(2);
+
+    EXPECT_EQ(initConfig(config),
+              InvalidConfigReason(INVALID_CONFIG_REASON_VALUE_METRIC_VALUE_FIELD_HAS_POSITION_ALL,
+                                  config.value_metric(0).id()));
+}
+
+TEST_F(MetricsManagerUtilTest,
+       TestValueMetricValueFieldHasNoPositionAllWithClientAggregatedHistogram) {
+    StatsdConfig config = createHistogramStatsdConfig();
+    config.mutable_value_metric(0)->add_histogram_bin_configs()->set_id(1);
+    config.mutable_value_metric(0)
+            ->mutable_histogram_bin_configs(0)
+            ->mutable_client_aggregated_bins();
+
+    EXPECT_EQ(initConfig(config),
+              InvalidConfigReason(
+                      INVALID_CONFIG_REASON_VALUE_METRIC_HIST_CLIENT_AGGREGATED_NO_POSITION_ALL,
+                      config.value_metric(0).id()));
+}
+
+TEST_F(MetricsManagerUtilTest,
+       TestValueMetricValueFieldHasPositionAllWithClientAggregatedHistogram) {
+    StatsdConfig config = createHistogramStatsdConfig();
+    config.mutable_value_metric(0)->add_histogram_bin_configs()->set_id(1);
+    config.mutable_value_metric(0)
+            ->mutable_histogram_bin_configs(0)
+            ->mutable_client_aggregated_bins();
+    config.mutable_value_metric(0)->mutable_value_field()->mutable_child(0)->set_position(ALL);
+
+    EXPECT_EQ(initConfig(config), nullopt);
+}
+
+TEST_F(MetricsManagerUtilTest, TestValueMetricHistogramWithValueDirectionNotIncreasing) {
+    StatsdConfig config = createHistogramStatsdConfig();
+    config.mutable_value_metric(0)->mutable_value_field()->mutable_child(0)->set_position(ALL);
+    config.mutable_value_metric(0)->add_histogram_bin_configs()->set_id(1);
+    config.mutable_value_metric(0)
+            ->mutable_histogram_bin_configs(0)
+            ->mutable_client_aggregated_bins();
+    config.mutable_value_metric(0)->set_value_direction(ValueMetric::DECREASING);
+
+    EXPECT_EQ(initConfig(config),
+              InvalidConfigReason(INVALID_CONFIG_REASON_VALUE_METRIC_HIST_INVALID_VALUE_DIRECTION,
+                                  config.value_metric(0).id()));
+
+    clearData();
+    config.mutable_value_metric(0)->clear_aggregation_type();
+    config.mutable_value_metric(0)->add_aggregation_types(ValueMetric::SUM);
+    config.mutable_value_metric(0)->add_aggregation_types(ValueMetric::HISTOGRAM);
+    config.mutable_value_metric(0)->mutable_value_field()->mutable_child(0)->clear_position();
+    config.mutable_value_metric(0)->mutable_value_field()->add_child()->set_field(2);
+    config.mutable_value_metric(0)->mutable_value_field()->mutable_child(1)->set_position(ALL);
+    config.mutable_value_metric(0)->set_value_direction(ValueMetric::ANY);
+
+    EXPECT_EQ(initConfig(config),
+              InvalidConfigReason(INVALID_CONFIG_REASON_VALUE_METRIC_HIST_INVALID_VALUE_DIRECTION,
+                                  config.value_metric(0).id()));
+}
+
+TEST_F(MetricsManagerUtilTest, TestUidFields) {
+    StatsdConfig config;
+
+    AtomMatcher appCrashMatcher =
+            CreateSimpleAtomMatcher("APP_CRASH_OCCURRED", util::APP_CRASH_OCCURRED);
+    *config.add_atom_matcher() = appCrashMatcher;
+
+    *config.add_atom_matcher() = CreateAcquireWakelockAtomMatcher();
+    *config.add_atom_matcher() = CreateReleaseWakelockAtomMatcher();
+
+    AtomMatcher bleScanResultReceivedMatcher =
+            CreateSimpleAtomMatcher("Ble", util::BLE_SCAN_RESULT_RECEIVED);
+    *config.add_atom_matcher() = bleScanResultReceivedMatcher;
+
+    Predicate holdingWakelockPredicate = CreateHoldingWakelockPredicate();
+    *holdingWakelockPredicate.mutable_simple_predicate()->mutable_dimensions() =
+            CreateAttributionUidDimensions(util::WAKELOCK_STATE_CHANGED, {Position::FIRST});
+    *config.add_predicate() = holdingWakelockPredicate;
+
+    CountMetric uidCountMetric = createCountMetric("C1", appCrashMatcher.id(), nullopt, {});
+    *uidCountMetric.mutable_uid_fields() = CreateDimensions(util::APP_CRASH_OCCURRED, {1 /*uid*/});
+    *config.add_count_metric() = uidCountMetric;
+
+    CountMetric countMetric = createCountMetric("C2", appCrashMatcher.id(), nullopt, {});
+    *config.add_count_metric() = countMetric;
+
+    DurationMetric uidDurationMetric =
+            createDurationMetric("D1", holdingWakelockPredicate.id(), nullopt, {});
+    *uidDurationMetric.mutable_uid_fields() =
+            CreateAttributionUidDimensions(util::WAKELOCK_STATE_CHANGED, {Position::FIRST});
+    *config.add_duration_metric() = uidDurationMetric;
+
+    DurationMetric durationMetric =
+            createDurationMetric("D2", holdingWakelockPredicate.id(), nullopt, {});
+    *config.add_duration_metric() = durationMetric;
+
+    EventMetric uidEventMetric = createEventMetric("E1", appCrashMatcher.id(), nullopt);
+    *uidEventMetric.mutable_uid_fields() = CreateDimensions(util::APP_CRASH_OCCURRED, {1 /*uid*/});
+    *config.add_event_metric() = uidEventMetric;
+
+    EventMetric eventMetric = createEventMetric("E2", appCrashMatcher.id(), nullopt);
+    *config.add_event_metric() = eventMetric;
+
+    ValueMetric uidValueMetric = createValueMetric("V1", bleScanResultReceivedMatcher,
+                                                   /*num_results=*/2, nullopt, {});
+    *uidValueMetric.mutable_uid_fields() =
+            CreateDimensions(util::BLE_SCAN_RESULT_RECEIVED, {1 /* uid */});
+    *config.add_value_metric() = uidValueMetric;
+
+    ValueMetric valueMetric = createValueMetric("V2", bleScanResultReceivedMatcher,
+                                                /*num_results=*/2, nullopt, {});
+    *config.add_value_metric() = valueMetric;
+
+    KllMetric uidKllMetric = createKllMetric("K1", bleScanResultReceivedMatcher,
+                                             /*num_results=*/2, nullopt);
+    *uidKllMetric.mutable_uid_fields() =
+            CreateDimensions(util::BLE_SCAN_RESULT_RECEIVED, {1 /* uid */});
+    *config.add_kll_metric() = uidKllMetric;
+
+    KllMetric kllMetric =
+            createKllMetric("K2", bleScanResultReceivedMatcher, /*num_results=*/2, nullopt);
+    *config.add_kll_metric() = kllMetric;
+
+    GaugeMetric uidGaugeMetric = createGaugeMetric("G1", appCrashMatcher.id(),
+                                                   GaugeMetric::FIRST_N_SAMPLES, nullopt, nullopt);
+    *uidGaugeMetric.mutable_uid_fields() =
+            CreateDimensions(util::APP_CRASH_OCCURRED, {1 /* uid */});
+    *config.add_gauge_metric() = uidGaugeMetric;
+
+    GaugeMetric gaugeMetric = createGaugeMetric("G2", appCrashMatcher.id(),
+                                                GaugeMetric::FIRST_N_SAMPLES, nullopt, nullopt);
+    *config.add_gauge_metric() = gaugeMetric;
+
+    ConfigKey key(123, 987);
+    uint64_t timeNs = 456;
+    sp<StatsPullerManager> pullerManager = new StatsPullerManager();
+    sp<AlarmMonitor> anomalyAlarmMonitor;
+    sp<AlarmMonitor> periodicAlarmMonitor;
+    sp<UidMap> uidMap;
+    sp<MetricsManager> metricsManager =
+            new MetricsManager(key, config, timeNs, timeNs, uidMap, pullerManager,
+                               anomalyAlarmMonitor, periodicAlarmMonitor);
+    ASSERT_TRUE(metricsManager->isConfigValid());
+    ASSERT_EQ(12, metricsManager->mAllMetricProducers.size());
+
+    sp<MetricProducer> uidCountMetricProducer = metricsManager->mAllMetricProducers[0];
+    sp<MetricProducer> countMetricProducer = metricsManager->mAllMetricProducers[1];
+    sp<MetricProducer> uidDurationMetricProducer = metricsManager->mAllMetricProducers[2];
+    sp<MetricProducer> durationMetricProducer = metricsManager->mAllMetricProducers[3];
+    sp<MetricProducer> uidEventMetricProducer = metricsManager->mAllMetricProducers[4];
+    sp<MetricProducer> eventMetricProducer = metricsManager->mAllMetricProducers[5];
+    sp<MetricProducer> uidValueMetricProducer = metricsManager->mAllMetricProducers[6];
+    sp<MetricProducer> valueMetricProducer = metricsManager->mAllMetricProducers[7];
+    sp<MetricProducer> uidKllMetricProducer = metricsManager->mAllMetricProducers[8];
+    sp<MetricProducer> kllMetricProducer = metricsManager->mAllMetricProducers[9];
+    sp<MetricProducer> uidGaugeMetricProducer = metricsManager->mAllMetricProducers[10];
+    sp<MetricProducer> gaugeMetricProducer = metricsManager->mAllMetricProducers[11];
+
+    // Check uid what fields is set correctly or empty.
+    EXPECT_EQ(1, uidCountMetricProducer->mUidFields.size());
+    EXPECT_EQ(true, countMetricProducer->mUidFields.empty());
+    EXPECT_EQ(1, uidDurationMetricProducer->mUidFields.size());
+    EXPECT_EQ(true, durationMetricProducer->mUidFields.empty());
+    EXPECT_EQ(1, uidEventMetricProducer->mUidFields.size());
+    EXPECT_EQ(true, eventMetricProducer->mUidFields.empty());
+    EXPECT_EQ(1, uidValueMetricProducer->mUidFields.size());
+    EXPECT_EQ(true, valueMetricProducer->mUidFields.empty());
+    EXPECT_EQ(1, uidKllMetricProducer->mUidFields.size());
+    EXPECT_EQ(true, kllMetricProducer->mUidFields.empty());
+    EXPECT_EQ(1, uidGaugeMetricProducer->mUidFields.size());
+    EXPECT_EQ(true, gaugeMetricProducer->mUidFields.empty());
+}
+
+TEST_F(MetricsManagerUtilTest, TestMetricHasRepeatedUidField_PositionANY) {
+    AtomMatcher testAtomReportedMatcher =
+            CreateSimpleAtomMatcher("TEST_ATOM_REPORTED", util::TEST_ATOM_REPORTED);
+
+    StatsdConfig config;
+    *config.add_atom_matcher() = testAtomReportedMatcher;
+
+    CountMetric metric = createCountMetric("CountSampledTestAtomReportedPerRepeatedIntField",
+                                           testAtomReportedMatcher.id(), nullopt, {});
+    *metric.mutable_uid_fields() = CreateRepeatedDimensions(
+            util::TEST_ATOM_REPORTED, {9 /*repeated_int_field*/}, {Position::ANY});
+    *config.add_count_metric() = metric;
+
+    EXPECT_EQ(initConfig(config),
+              InvalidConfigReason(INVALID_CONFIG_REASON_UID_FIELDS_WITH_POSITION_ANY, metric.id()));
 }
 
 }  // namespace statsd

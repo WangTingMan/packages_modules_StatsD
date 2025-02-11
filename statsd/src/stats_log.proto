@@ -51,10 +51,18 @@ message StateValue {
   }
 }
 
+message AggregatedStateInfo {
+  repeated StateValue slice_by_state = 1;
+
+  repeated int64 elapsed_timestamp_nanos = 2;
+}
+
 message AggregatedAtomInfo {
     optional Atom atom = 1;
 
     repeated int64 elapsed_timestamp_nanos = 2;
+
+    repeated AggregatedStateInfo state_info = 3; // Only used when metrics have slice_by_state
 }
 
 message EventMetricData {
@@ -65,6 +73,8 @@ message EventMetricData {
   optional int64 wall_clock_timestamp_nanos = 3 [deprecated = true];
 
   optional AggregatedAtomInfo aggregated_atom_info = 4;
+
+  repeated StateValue slice_by_state = 5;
 }
 
 message CountBucketInfo {

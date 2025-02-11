@@ -36,6 +36,7 @@
 #include "src/matchers/AtomMatchingTracker.h"
 #include "src/metrics/MetricProducer.h"
 #include "src/packages/UidMap.h"
+#include "src/stats_util.h"
 #include "src/statsd_config.pb.h"
 
 namespace android {
@@ -81,6 +82,14 @@ protected:
     std::map<int64_t, uint64_t> stateProtoHashes;
     std::set<int64_t> noReportMetricIds;
 };
+
+StatsdConfig createHistogramStatsdConfig();
+
+StatsdConfig createExplicitHistogramStatsdConfig(BinStarts bins);
+
+StatsdConfig createGeneratedHistogramStatsdConfig(
+        float binsMin, float binsMax, int binsCount,
+        HistogramBinConfig::GeneratedBins::Strategy binStrategy);
 
 }  // namespace statsd
 }  // namespace os

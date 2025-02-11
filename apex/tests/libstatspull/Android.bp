@@ -43,6 +43,7 @@ android_test {
     privileged: true,
     certificate: "platform",
     compile_multilib: "both",
+    min_sdk_version: "30",
 }
 
 cc_test_library {
@@ -61,5 +62,4 @@ cc_test_library {
     static_libs: [
         "libbase",
     ],
-    test_for: ["com.android.os.statsd"],
 }

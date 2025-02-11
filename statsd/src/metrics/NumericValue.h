@@ -18,6 +18,8 @@
 #include <utility>
 #include <variant>
 
+#include "HistogramValue.h"
+
 #pragma once
 
 namespace android {
@@ -50,12 +52,12 @@ public:
     }
 
     // Copy assignment
-    constexpr NumericValue& operator=(const NumericValue& rhs) = default;
+    NumericValue& operator=(const NumericValue& rhs) = default;
 
     // Move assignment
-    constexpr NumericValue& operator=(NumericValue&& rhs) noexcept = default;
+    NumericValue& operator=(NumericValue&& rhs) noexcept = default;
 
-    constexpr ~NumericValue() = default;
+    ~NumericValue() = default;
 
     std::string toString() const;
 
@@ -104,7 +106,7 @@ public:
 
 private:
     // std::monostate represents "empty" or default value.
-    std::variant<std::monostate, int64_t, double> mData;
+    std::variant<std::monostate, int64_t, double, HistogramValue> mData;
 };
 
 }  // namespace statsd
