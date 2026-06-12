@@ -29,6 +29,8 @@
 #include "stats_buffer_writer_queue_impl.h"
 #include "utils.h"
 
+#include <base/threading/platform_thread.h>
+
 namespace {
 constexpr int32_t kBootTimeEventElapsedTimeAtomId = 240;
 }
@@ -105,6 +107,7 @@ void BufferWriterQueue::drainQueue() {
 }
 
 void BufferWriterQueue::processCommands() {
+    base::PlatformThread::SetName( "socket_writer_queue" );
     while (true) {
         // temporary local thread copy
         Cmd cmd;
